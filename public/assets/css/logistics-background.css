@@ -1,0 +1,127 @@
+/* ============================================================================
+   Page background.
+   The workspace sits on the same textured surface the Xode template used, so
+   the white cards read as cards instead of merging into a flat white page.
+   ========================================================================== */
+
+body.vertical {
+  background-color: #cfcfcf;
+  background-image: url("../img/bg/wall-texture.jpg");
+  background-repeat: repeat;
+  background-attachment: fixed;
+}
+
+/* The shell and the content area stay transparent so the texture shows through. */
+body.vertical .wrapper,
+body.vertical .main-content,
+body.vertical .main-content > .container-fluid {
+  background: transparent;
+}
+
+/* Cards, panels and tables keep a solid surface so text stays readable on it. */
+body.vertical .card,
+body.vertical .lms-section,
+body.vertical .lms-highlight,
+body.vertical .lms-form-bar,
+body.vertical .lms-auth-card {
+  background-color: var(--lms-surface, #fff);
+}
+
+/* The top bar and the sidebar keep their own solid background. */
+body.vertical .topnav,
+body.vertical .sidebar-left {
+  background-color: #fff;
+}
+
+/* Dark mode: the same texture, dimmed, rather than a flat black page. */
+body.vertical.dark {
+  background-color: #23272b;
+  background-image:
+    linear-gradient(rgba(25, 28, 31, 0.88), rgba(25, 28, 31, 0.88)),
+    url("../img/bg/wall-texture.jpg");
+}
+
+body.vertical.dark .topnav,
+body.vertical.dark .sidebar-left {
+  background-color: #2b3035 !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Text that sits directly on the texture rather than inside a card.
+   The muted greys were chosen against white, so on the textured surface they
+   need to be darker and lifted with a faint light halo to stay readable.
+   ------------------------------------------------------------------------- */
+body.vertical .lms-page-title {
+  color: #18222c;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+body.vertical .lms-kicker {
+  color: #4c5661;
+  font-weight: 800;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+body.vertical .lms-page-sub {
+  color: #39434d;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+body.vertical .lms-crumbs,
+body.vertical .lms-crumbs a,
+body.vertical .lms-crumbs .breadcrumb-item.active {
+  color: #39434d;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+body.vertical .lms-crumbs a:hover {
+  color: var(--lms-accent);
+}
+
+/* Outline buttons in the page header need a surface of their own out here. */
+body.vertical .lms-page-actions .btn-outline-secondary,
+body.vertical .lms-page-actions .btn-outline-primary,
+body.vertical .lms-page-actions .btn-light {
+  background-color: rgba(255, 255, 255, 0.92);
+}
+
+body.vertical .lms-page-actions .btn-outline-secondary:hover,
+body.vertical .lms-page-actions .btn-outline-primary:hover {
+  background-color: #fff;
+}
+
+/* Dark mode: the same idea the other way round. */
+body.vertical.dark .lms-page-title {
+  color: #f1f4f7;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+body.vertical.dark .lms-kicker,
+body.vertical.dark .lms-page-sub,
+body.vertical.dark .lms-crumbs,
+body.vertical.dark .lms-crumbs a,
+body.vertical.dark .lms-crumbs .breadcrumb-item.active {
+  color: #c3ccd4;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+body.vertical.dark .lms-page-actions .btn-outline-secondary,
+body.vertical.dark .lms-page-actions .btn-outline-primary,
+body.vertical.dark .lms-page-actions .btn-light {
+  background-color: rgba(43, 48, 53, 0.92);
+  color: #e7ecf0;
+  border-color: #4b535b;
+}
+
+/* The public home page keeps its own full-bleed treatment. */
+body.logistics-home {
+  background-color: #f3f5f8;
+}
+
+/* The standalone sign-in, reset and error pages use the texture too. */
+body.lms-auth-page {
+  background-color: #cfcfcf;
+  background-image: url("../img/bg/wall-texture.jpg");
+  background-repeat: repeat;
+  background-attachment: fixed;
+}

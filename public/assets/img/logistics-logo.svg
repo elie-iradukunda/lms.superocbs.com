@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 112" role="img" aria-labelledby="title desc">
+  <title id="title">LMS - Logistics Management System</title>
+  <desc id="desc">A white letter L on a dark yellow rounded square, next to the LMS wordmark.</desc>
+  <rect width="360" height="112" rx="18" fill="#ffffff"/>
+  <rect x="14" y="14" width="84" height="84" rx="18" fill="#ad7d00"/>
+  <text x="56" y="77" text-anchor="middle" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="58" font-weight="700">L</text>
+  <text x="122" y="51" fill="#174b49" font-family="Arial, sans-serif" font-size="32" font-weight="700" letter-spacing="4">LMS</text>
+  <text x="122" y="79" fill="#4f5b5e" font-family="Arial, sans-serif" font-size="12" font-weight="600" letter-spacing="1">LOGISTICS MANAGEMENT SYSTEM</text>
+</svg>

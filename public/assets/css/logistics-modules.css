@@ -1,0 +1,283 @@
+/* ============================================================================
+   Module pages: list, form and record detail.
+   One set of tokens so a page reads the same in light and dark mode.
+   ========================================================================== */
+/* Secondary text carries the explanations — what a page is for, what a button
+   will do, what a column means — so it has to be read, not just glimpsed. The
+   old #7a858f sat at 4.0:1 on white, under the 4.5:1 AA floor; these clear it
+   at 5.6:1 and 5.3:1, and the weight below gives the small sizes some body. */
+:root{--lms-line:#e6ebf0;--lms-muted:#5b6771;--lms-ink:#22303c;--lms-surface:#fff;--lms-soft:#f6f8fa;--lms-accent:#5e72e4}
+body.dark{--lms-line:#3a4149;--lms-muted:#a8b2bb;--lms-ink:#e7ecf0;--lms-surface:#2b3035;--lms-soft:#31373d;--lms-accent:#f0b565}
+
+/* The explanatory lines under a heading, a section title or an action bar. */
+.lms-page-sub,
+.lms-section-head p,
+.lms-result-count,
+.lms-rule-list,
+.lms-book-head p,
+.lms-form-facts li,
+.lms-action-bar-inner p,
+.card-header .text-muted,
+.lms-card-hint{font-weight:500}
+
+/* --- page heading -------------------------------------------------------- */
+.lms-page-head{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;justify-content:space-between;padding:22px 0 16px}
+.lms-page-title{font-size:1.4rem;font-weight:700;margin:0;color:var(--lms-ink);display:flex;align-items:center;gap:2px}
+.lms-page-sub{margin:6px 0 0;color:var(--lms-muted);font-size:.85rem;max-width:70ch}
+.lms-kicker{margin:0 0 2px;font-size:.68rem;letter-spacing:.09em;text-transform:uppercase;color:var(--lms-muted);font-weight:700}
+.lms-page-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.lms-crumbs{background:none;padding:0;margin:0 0 4px;font-size:.75rem}
+.lms-crumbs .breadcrumb-item+.breadcrumb-item::before{color:var(--lms-muted)}
+.lms-status-badge{font-size:.62rem;vertical-align:middle;margin-left:10px;letter-spacing:.04em;text-transform:uppercase}
+
+/* --- flash messages ------------------------------------------------------ */
+.lms-flash{border:0;border-left:4px solid currentColor;border-radius:6px;font-size:.87rem}
+
+/* --- filter bar ---------------------------------------------------------- */
+.lms-filter-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.lms-filter-search{position:relative;flex:1 1 240px;min-width:200px}
+.lms-filter-search i{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--lms-muted);pointer-events:none}
+.lms-filter-search .form-control{padding-left:38px}
+.lms-filter-select{width:auto;min-width:150px}
+.lms-filter-narrow{min-width:120px;width:auto}
+.lms-result-count{font-size:.8rem;color:var(--lms-muted);margin:0 0 10px}
+
+/* --- tables -------------------------------------------------------------- */
+.lms-table{font-size:.8rem;margin-bottom:0}
+.lms-table thead th{border-top:0;border-bottom:1px solid var(--lms-line);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--lms-muted);font-weight:700;white-space:nowrap;padding:.55rem .6rem}
+.lms-table td{padding:.55rem .6rem;vertical-align:middle;border-top:1px solid var(--lms-line)}
+.lms-table tbody tr:hover{background:var(--lms-soft)}
+.lms-sort{color:inherit;display:inline-flex;align-items:center;gap:4px}
+.lms-sort:hover{color:var(--lms-accent);text-decoration:none}
+.lms-sort.is-sorted{color:var(--lms-accent)}
+.lms-row-link{color:inherit}
+.lms-row-link:hover{color:var(--lms-accent);text-decoration:none}
+.lms-num{font-variant-numeric:tabular-nums}
+.lms-row-actions .btn-link{padding:.1rem .25rem;color:var(--lms-muted)}
+.lms-row-actions .btn-link:hover{color:var(--lms-accent)}
+.lms-row-actions .text-danger:hover{color:#dc3545 !important}
+.lms-empty{text-align:center;padding:42px 16px;color:var(--lms-muted)}
+.lms-empty .fe{opacity:.35;display:block;margin-bottom:10px}
+
+/* --- pagination ---------------------------------------------------------- */
+.lms-pagination{display:flex;align-items:center;gap:12px;justify-content:flex-end;padding-top:14px;flex-wrap:wrap}
+.lms-pagination-pages{display:flex;gap:4px}
+.lms-page{min-width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;font-size:.78rem;color:var(--lms-ink);border:1px solid var(--lms-line)}
+.lms-page:hover{text-decoration:none;border-color:var(--lms-accent);color:var(--lms-accent)}
+.lms-page.is-current{background:var(--lms-accent);border-color:var(--lms-accent);color:#fff}
+
+/* --- sections (shared by form and detail) -------------------------------- */
+.lms-section{margin-bottom:18px;border:1px solid var(--lms-line)}
+.lms-section-head{display:flex;gap:14px;align-items:flex-start;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--lms-line);background:var(--lms-soft)}
+.lms-section-head h3{font-size:.92rem;font-weight:700;margin:0;color:var(--lms-ink);display:flex;align-items:center}
+.lms-section-head p{margin:4px 0 0;font-size:.76rem;color:var(--lms-muted);max-width:78ch}
+.lms-section-head>div:first-child{display:flex;gap:12px;align-items:flex-start}
+.lms-section-num{flex:0 0 26px;width:26px;height:26px;border-radius:50%;background:var(--lms-accent);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700}
+
+/* --- form controls ------------------------------------------------------- */
+.lms-form-page{padding-bottom:88px}
+.lms-field label{font-size:.76rem;font-weight:600;color:var(--lms-ink);margin-bottom:.3rem}
+.lms-field .form-control,.lms-field .custom-file-label{font-size:.83rem}
+.lms-field .form-text{font-size:.72rem;margin-top:.3rem}
+.lms-required{color:#dc3545;font-weight:700}
+.lms-file-current a{font-weight:600}
+.lms-form-facts li{padding:4px 0;color:var(--lms-muted)}
+.lms-form-aside{position:sticky;top:84px}
+.lms-error-block ul{padding-left:18px;font-size:.85rem}
+.lms-form-bar{position:sticky;bottom:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--lms-surface);border-top:1px solid var(--lms-line);padding:12px 18px;margin:8px -15px 0;box-shadow:0 -4px 14px rgba(15,25,35,.06)}
+.select2-container--bootstrap4 .select2-selection{font-size:.83rem}
+
+/* --- record detail ------------------------------------------------------- */
+.lms-highlights{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:18px}
+.lms-highlight{display:flex;gap:12px;align-items:center;background:var(--lms-surface);border:1px solid var(--lms-line);border-radius:8px;padding:12px 14px}
+.lms-highlight-icon{flex:0 0 38px;width:38px;height:38px;border-radius:9px;background:var(--lms-soft);color:var(--lms-accent);display:inline-flex;align-items:center;justify-content:center}
+.lms-highlight small{display:block;font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--lms-muted);font-weight:700}
+.lms-highlight strong{display:block;font-size:.92rem;color:var(--lms-ink);line-height:1.3}
+.lms-facts dt{font-size:.76rem;font-weight:600;color:var(--lms-muted);padding:.4rem 0;border-bottom:1px solid var(--lms-line)}
+.lms-facts dd{font-size:.83rem;color:var(--lms-ink);padding:.4rem 0;margin:0;border-bottom:1px solid var(--lms-line)}
+.lms-facts dt:last-of-type,.lms-facts dd:last-of-type{border-bottom:0}
+.lms-longtext{white-space:pre-wrap}
+.lms-file-link{font-weight:600}
+.lms-attachments li{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:.82rem;border-bottom:1px solid var(--lms-line)}
+.lms-attachments li:last-child{border-bottom:0}
+.lms-attachments li span{flex:1}
+.lms-related-table{font-size:.78rem}
+
+/* --- workflow action bar ------------------------------------------------- */
+.lms-action-bar{border:1px solid var(--lms-accent);margin-bottom:18px}
+.lms-action-bar-inner{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.lms-action-buttons{display:flex;gap:8px;flex-wrap:wrap}
+
+/* --- line item editor ---------------------------------------------------- */
+.lms-lines-table{font-size:.78rem}
+.lms-lines-table thead th{font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:var(--lms-muted);white-space:nowrap}
+.lms-lines-table .form-control-sm{font-size:.78rem}
+.lms-line-clear{font-size:1.1rem;line-height:1}
+
+/* --- timeline ------------------------------------------------------------ */
+.lms-timeline{max-height:420px;overflow-y:auto}
+.lms-timeline-compact{max-height:250px}
+.lms-timeline-item{position:relative;display:flex;gap:12px;padding:0 0 14px 4px}
+.lms-timeline-item:last-child{padding-bottom:0}
+.lms-timeline-dot{flex:0 0 9px;width:9px;height:9px;border-radius:50%;background:var(--lms-accent);margin-top:5px;box-shadow:0 0 0 3px var(--lms-soft)}
+.lms-timeline-item strong{font-size:.8rem;color:var(--lms-ink)}
+.lms-timeline-item small,.lms-timeline-item em{font-size:.72rem}
+
+/* --- reports ------------------------------------------------------------- */
+.lms-report-card{display:block;color:inherit;border:1px solid var(--lms-line);transition:transform .12s ease,border-color .12s ease}
+.lms-report-card:hover{text-decoration:none;color:inherit;transform:translateY(-2px);border-color:var(--lms-accent)}
+.lms-report-icon{display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:11px;background:var(--lms-soft);color:var(--lms-accent)}
+.lms-report-open{font-size:.78rem;font-weight:700;color:var(--lms-accent)}
+.lms-pct{display:inline-block;padding:2px 6px;border-radius:4px;min-width:58px;text-align:right}
+
+/* --- permissions matrix -------------------------------------------------- */
+.lms-role-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.lms-role-tab{padding:8px 14px;border-radius:8px;border:1px solid var(--lms-line);font-size:.8rem;font-weight:600;color:var(--lms-ink)}
+.lms-role-tab small{display:block;font-weight:400;font-size:.68rem;color:var(--lms-muted)}
+.lms-role-tab:hover{text-decoration:none;border-color:var(--lms-accent);color:var(--lms-accent)}
+.lms-role-tab.is-current{background:var(--lms-accent);border-color:var(--lms-accent);color:#fff}
+.lms-role-tab.is-current small{color:rgba(255,255,255,.8)}
+.lms-permission-table{font-size:.8rem}
+.lms-permission-table thead th{font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:var(--lms-muted)}
+.lms-permission-list li{padding:4px 0;border-bottom:1px solid var(--lms-line);display:flex;justify-content:space-between;gap:10px}
+.lms-permission-list li:last-child{border-bottom:0}
+
+/* --- notifications: mark as read ----------------------------------------- */
+.lms-notify-row{display:flex;align-items:stretch}
+.lms-notify-row .lms-notify-item{flex:1}
+.lms-notify-tick button{background:none;border:0;padding:0 12px;color:var(--lms-muted);cursor:pointer}
+.lms-notify-tick button:hover{color:#28a745}
+.lms-notify-clear{background:none;border:0;padding:0;font-size:.7rem;color:var(--lms-accent);cursor:pointer;font-style:normal}
+.lms-notify-clear:hover{text-decoration:underline}
+
+/* --- standalone auth pages ----------------------------------------------- */
+.lms-auth-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f3f5f8;padding:24px 16px}
+.lms-auth-card{width:100%;max-width:430px;background:#fff;border-radius:14px;padding:32px;box-shadow:0 14px 40px rgba(15,25,35,.1)}
+.lms-auth-brand{display:block;margin-bottom:22px}
+.lms-auth-card h1{font-size:1.25rem;font-weight:700;margin-bottom:14px}
+.lms-auth-token{display:block;word-break:break-all;font-size:.72rem;background:#f3f5f8;padding:8px;border-radius:6px}
+.lms-rule-list{padding-left:18px;color:var(--lms-muted);font-size:.8rem;margin-bottom:0}
+.lms-rule-list li{padding:2px 0}
+.login-help{margin:10px 0 0;text-align:center;font-size:.82rem}
+
+/* --- responsive ---------------------------------------------------------- */
+@media(max-width:767.98px){
+  .lms-page-head{flex-direction:column}
+  .lms-page-actions{width:100%}
+  .lms-form-aside{position:static}
+  .lms-form-bar{flex-direction:column;align-items:stretch;gap:8px}
+  .lms-form-bar>div{display:flex;gap:8px}
+  .lms-form-bar .btn{flex:1}
+  .lms-highlights{grid-template-columns:1fr 1fr}
+}
+
+/* --- accounting books ------------------------------------------------------
+   A statement is read by scanning a column, so the type is quiet and the only
+   emphasis is on the lines that carry a total.
+   ------------------------------------------------------------------------- */
+.lms-book-head{text-align:center;padding:6px 0 18px;border-bottom:1px solid var(--lms-line);margin-bottom:16px}
+.lms-book-head h3{font-size:1rem;font-weight:800;letter-spacing:.04em;color:var(--lms-accent);margin:0 0 4px;text-transform:uppercase}
+.lms-book-head h4{font-size:1.15rem;font-weight:700;color:var(--lms-ink);margin:0 0 3px}
+.lms-book-head p{margin:0;font-size:.82rem;color:var(--lms-muted)}
+.lms-book-head small{font-size:.72rem;color:var(--lms-muted);font-style:italic}
+
+.lms-book{font-size:.8rem;margin-bottom:0}
+.lms-book thead th{border-top:0;border-bottom:1px solid var(--lms-accent);font-size:.66rem;letter-spacing:.07em;text-transform:uppercase;color:var(--lms-muted);font-weight:700;padding:.45rem .6rem;white-space:nowrap}
+.lms-book td{padding:.32rem .6rem;border-top:0;vertical-align:middle}
+.lms-book tbody tr:hover{background:var(--lms-soft)}
+.lms-book-section td{font-weight:700;color:var(--lms-ink);background:var(--lms-soft);text-transform:uppercase;font-size:.72rem;letter-spacing:.05em;padding-top:.5rem;padding-bottom:.5rem}
+.lms-book-section:hover td{background:var(--lms-soft)}
+.lms-book-total td{font-weight:700;border-top:1px solid var(--lms-line)}
+.lms-book-grand td{font-weight:800;border-top:2px solid var(--lms-ink);border-bottom:3px double var(--lms-ink);color:var(--lms-ink)}
+.lms-book-blank td{padding:.25rem;border:0}
+.lms-book-blank:hover td{background:transparent}
+.lms-book-negative{color:#b02a37}
+.lms-ledger-state{border-left:4px solid currentColor;font-size:.87rem}
+
+/* The journal entry form keeps its running totals visible while typing. */
+.lms-journal-lines tfoot td{border-top:1px solid var(--lms-line)}
+.lms-journal-lines input[type=number]{font-variant-numeric:tabular-nums}
+
+/* Printing a book: only the statement, on white, without the shell. */
+@media print{
+  .fl-no-print,.topnav,.sidebar-left,.lms-footer,.lms-page-actions,.lms-filter-bar,.lms-flash{display:none !important}
+  body.vertical,body.vertical.dark{background:#fff !important;background-image:none !important}
+  .main-content{margin:0 !important;padding:0 !important}
+  .card,.lms-section{border:0 !important;box-shadow:none !important}
+  .lms-book td,.lms-book th{padding:.2rem .4rem}
+  .lms-book-section td{background:#f1f1f1 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+/* company settings: tabbed groups */
+.lms-settings-tabs{background:var(--lms-surface);border:1px solid var(--lms-line);border-bottom:1px solid var(--lms-line);margin-bottom:10px;padding:0 14px;flex-wrap:wrap}
+.lms-settings-tabs .nav-link{border:0;border-bottom:2px solid transparent;border-radius:0;padding:.65rem 1rem;font-size:.85rem;font-weight:600;color:var(--lms-muted)}
+.lms-settings-tabs .nav-link:hover{color:var(--lms-ink);border-bottom-color:var(--lms-line)}
+.lms-settings-tabs .nav-link.active{color:var(--lms-accent);background:transparent;border-bottom-color:var(--lms-accent)}
+.lms-settings-panes{background:var(--lms-surface);border:1px solid var(--lms-line);padding:20px 18px 6px}
+.lms-settings-hint{margin:0 0 16px;font-size:.8rem;color:var(--lms-muted);max-width:78ch}
+
+/* save bar moved to the top of the settings form: same look as the bottom
+   action bar elsewhere, but static and sitting above the tabs, not sticky */
+.lms-form-bar-top{position:static;box-shadow:none;margin:0 0 14px;border-top:0;border:1px solid var(--lms-line)}
+
+/* ---------------------------------------------------------------- profile photo
+   Everyone used to be shown the same stock photograph a theme shipped with, so
+   the face in the corner belonged to a stranger. A person can now upload their
+   own; an account without one shows its own initials, tinted from the name so
+   the same person is always the same colour. */
+.lms-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: .5px;
+  border-radius: 50%;
+  width: 100%;
+  height: 100%;
+  font-size: .78rem;
+  line-height: 1;
+  /* The tint comes from the name, so it is set inline rather than here. */
+}
+
+.lms-initials-lg {
+  font-size: 1.6rem;
+  letter-spacing: 1px;
+}
+
+.lms-photo-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 0 20px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--lms-border, #e9edf1);
+}
+
+.lms-photo-current {
+  width: 84px;
+  height: 84px;
+  flex: 0 0 84px;
+}
+
+.lms-photo-img {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #f2f5f8;
+  border: 2px solid var(--lms-border, #e9edf1);
+}
+
+.lms-photo-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.lms-photo-actions label {
+  cursor: pointer;
+}
+
+@media (max-width: 575.98px) {
+  .lms-photo-row { flex-direction: column; align-items: flex-start; }
+}
