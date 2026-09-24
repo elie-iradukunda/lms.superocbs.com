@@ -1,0 +1,27 @@
+# This folder sits inside public_html, so it can be reached two ways: through
+# its own subdomain, which is the point, and through superocbs.com/…, which is
+# an accident of where cPanel insists the document root lives.
+#
+# A blanket deny closes the second and the first with it — cPanel allows
+# overrides across the whole home directory, so Apache reads this file for the
+# subdomain too, even though it sits above that subdomain's document root.
+#
+# So the rule names the door instead of the room: anything arriving under a
+# host other than the subdomain is refused, and the subdomain is untouched.
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP_HOST} !^lms\.superocbs\.com$ [NC]
+    RewriteRule ^ - [F]
+</IfModule>
+
+# And whatever happens to rewriting, this file is never served.
+<Files ".env">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</Files>
