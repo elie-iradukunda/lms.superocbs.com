@@ -16,7 +16,6 @@ $tone = static function (string $action): string {
     <div>
       <p class="lms-kicker">Administration</p>
       <h2 class="lms-page-title"><i class="fe fe-activity mr-2"></i>Audit trail</h2>
-      <p class="lms-page-sub">Every login, record change, approval, deletion, file download and export, with who did it and why.</p>
     </div>
     <div class="lms-page-actions">
       <a class="btn btn-outline-secondary" href="<?= e(url(['audit', 'export'], $query)) ?>"><i class="fe fe-download fe-12 mr-1"></i>Export CSV</a>
