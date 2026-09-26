@@ -3,6 +3,7 @@
 # Secrets: the mail API key and the database password live here, on the machine
 # that runs the app, and must never reach the repository.
 .env
+auto-commit.sh
 
 # Uploaded proof of delivery, signatures, receipts and scanned documents.
 storage/uploads/
