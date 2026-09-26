@@ -337,7 +337,7 @@ function navigation(): array
             ['vehicles', 'Vehicles'], ['drivers', 'Drivers'], ['maintenance', 'Maintenance'], ['vehicle_documents', 'Vehicle documents'],
         ]],
         ['label' => 'Transport', 'icon' => 'map-pin', 'id' => 'transportMenu', 'items' => [
-            ['requests', 'Transport requests'], ['trips', 'Trips'], ['shipments', 'Shipments'], ['deliveries', 'Deliveries'], ['crossings', 'Border crossings'], ['border_posts', 'Border posts'],
+            ['requests', 'Transport requests'], ['trips', 'Trips'], ['shipments', 'Shipments'], ['shipment_documents', 'Shipment documents'], ['pre_dispatch_checks', 'Pre-dispatch checks'], ['deliveries', 'Deliveries'], ['crossings', 'Customs clearance'], ['clearance_documents', 'Clearance documents'], ['clearance_inspections', 'Inspections'], ['clearance_payments', 'Clearance payments'], ['clearance_releases', 'Releases'], ['border_posts', 'Border posts'],
         ]],
         ['label' => 'Commercial', 'icon' => 'briefcase', 'id' => 'commercialMenu', 'items' => [
             ['customers', 'Customers'], ['rates', 'Rate cards'], ['invoices', 'Invoices'], ['payments', 'Payments received'],
@@ -394,6 +394,42 @@ if (isset($_GET['switch_role'], $roleDefinitions[$_GET['switch_role']]) && can_s
     \Models\Permission::flush();
 }
 
+/**
+ * The database problem the sign-in page ran into, if it ran into one.
+ *
+ * Set while looking for accounts, read when the page renders. Passing it in
+ * would mean threading an error through a helper whose job is to return a list.
+ */
+function database_fault(?string $message = null): ?string
+{
+    static $fault = null;
+
+    if ($message !== null) {
+        $fault = $message;
+    }
+
+    return $fault;
+}
+
+/** Which of the two faults it is, in words somebody can act on. */
+function database_fault_hint(): string
+{
+    $fault = (string) database_fault();
+
+    return match (true) {
+        $fault === '' => '',
+        str_contains($fault, 'Unknown database')
+            => 'The database named in .env does not exist on this server. Create it, then import database/install.sql into it.',
+        str_contains($fault, 'Access denied')
+            => 'The database refused the user name or password in .env. On cPanel both carry your account prefix, as in account_lms and account_lmsuser.',
+        str_contains($fault, "doesn't exist") || str_contains($fault, 'Base table')
+            => 'The database is there but empty. Import database/install.sql into it.',
+        str_contains($fault, 'Connection refused') || str_contains($fault, 'No such host') || str_contains($fault, 'server has gone away')
+            => 'The database server could not be reached. Check LOGISTICS_DB_HOST in .env; on most shared hosting it is localhost.',
+        default => 'The database could not be opened. The server error log has the reason in full.',
+    };
+}
+
 function demo_accounts(): array
 {
     static $accounts = null;
@@ -404,7 +440,12 @@ function demo_accounts(): array
 
     try {
         $accounts = array_intersect_key((new \Models\UserRepository())->activeLoginAccounts(), role_definitions());
-    } catch (\Throwable) {
+    } catch (\Throwable $exception) {
+        // Why there are no accounts matters, and the two reasons need opposite
+        // actions. An empty table means import the data; a database that cannot
+        // be opened means fix .env, and telling that person to run a migration
+        // sends them a long way in the wrong direction.
+        database_fault($exception->getMessage());
         $accounts = [];
     }
 
