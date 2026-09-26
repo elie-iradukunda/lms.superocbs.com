@@ -53,8 +53,11 @@ final class BorderCrossing
     {
         $id = (int) $crossing['id'];
 
-        if ($action === 'lodge' && trim((string) $crossing['declaration_no']) === '') {
-            return 'Enter the declaration number before recording it as lodged: that number is what everything else is followed up on.';
+        if ($action === 'submit_declaration' && trim((string) $crossing['declaration_no']) === '') {
+            return 'Enter the declaration number before submitting it: that number is what everything else is followed up on.';
+        }
+        if ($action === 'submit_declaration' && self::validDocuments($id) === 0) {
+            return 'Add and validate at least one clearance document before submitting the declaration.';
         }
 
         if ($action === 'clear') {
@@ -66,10 +69,17 @@ final class BorderCrossing
                     count($missing) === 1 ? 'is' : 'are'
                 );
             }
+            if (self::outstandingCharges($id) > 0) {
+                return 'Mark every customs charge paid or waived before clearing this shipment.';
+            }
         }
 
-        if ($action === 'depart' && empty($crossing['cleared_at'])) {
-            return 'This crossing has not been cleared yet. A truck that left without clearance is a held load somewhere else.';
+        if ($action === 'pass_inspection' && !self::hasPassedInspection($id)) {
+            return 'Record a passed inspection before moving the clearance to duties assessment.';
+        }
+
+        if ($action === 'release' && !self::hasRelease($id)) {
+            return 'Create the formal release record before marking this shipment released.';
         }
 
         return null;
@@ -88,11 +98,16 @@ final class BorderCrossing
         $now = date('Y-m-d H:i:s');
 
         return match ($action) {
-            'arrive' => self::stamp($db, $id, 'arrived_at', $now, sprintf('%s is at the border from %s.', $crossing['reference'], date('H:i'))),
-            'lodge' => self::stamp($db, $id, 'lodged_at', $now, sprintf('Declaration %s is lodged.', $crossing['declaration_no'])),
-            'hold' => self::hold($db, $id, $crossing, $reason),
+            'prepare_documents' => self::stamp($db, $id, 'arrived_at', $now, sprintf('%s is collecting clearance documents.', $crossing['reference'])),
+            'submit_declaration' => self::submit($db, $id, $crossing, $now),
+            'start_review' => self::stamp($db, $id, 'approved_at', $now, sprintf('%s is under customs review.', $crossing['reference'])),
+            'request_inspection' => self::hold($db, $id, $crossing, 'Inspection requested by customs.'),
+            'pass_inspection' => sprintf('Inspection passed for %s. Duties can now be assessed.', $crossing['reference']),
+            'assess_duties' => sprintf('Duties have been assessed for %s. Record payment next.', $crossing['reference']),
+            'request_payment' => sprintf('Payment is now pending for %s.', $crossing['reference']),
             'clear' => self::clear($db, $id, $crossing, $actor),
-            'depart' => self::depart($db, $id, $crossing),
+            'release' => self::depart($db, $id, $crossing),
+            'reject' => self::hold($db, $id, $crossing, $reason),
             default => sprintf('%s updated.', $crossing['reference']),
         };
     }
@@ -102,6 +117,13 @@ final class BorderCrossing
         $db->prepare("UPDATE border_crossings SET {$column} = COALESCE({$column}, ?), hold_reason = NULL WHERE id = ?")->execute([$when, $id]);
 
         return $message;
+    }
+
+    private static function submit(PDO $db, int $id, array $crossing, string $when): string
+    {
+        $db->prepare('UPDATE border_crossings SET submitted_at = COALESCE(submitted_at, ?), lodged_at = COALESCE(lodged_at, ?), hold_reason = NULL WHERE id = ?')->execute([$when, $when, $id]);
+
+        return sprintf('Declaration %s was submitted.', $crossing['declaration_no']);
     }
 
     private static function hold(PDO $db, int $id, array $crossing, string $reason): string
@@ -131,6 +153,9 @@ final class BorderCrossing
     private static function clear(PDO $db, int $id, array $crossing, ?int $actor): string
     {
         $db->prepare('UPDATE border_crossings SET cleared_at = COALESCE(cleared_at, NOW()), hold_reason = NULL WHERE id = ?')->execute([$id]);
+        if (!empty($crossing['shipment_id'])) {
+            $db->prepare("UPDATE shipments SET status = 'cleared' WHERE id = ? AND deleted_at IS NULL AND status NOT IN ('delivered', 'returned', 'cancelled')")->execute([(int) $crossing['shipment_id']]);
+        }
 
         $posted = self::post($id);
         $waited = self::hoursBetween((string) $crossing['arrived_at'], date('Y-m-d H:i:s'));
@@ -145,12 +170,15 @@ final class BorderCrossing
 
     private static function depart(PDO $db, int $id, array $crossing): string
     {
-        $db->prepare('UPDATE border_crossings SET departed_at = COALESCE(departed_at, NOW()) WHERE id = ?')->execute([$id]);
+        $db->prepare('UPDATE border_crossings SET released_at = COALESCE(released_at, NOW()), departed_at = COALESCE(departed_at, NOW()), hold_reason = NULL WHERE id = ?')->execute([$id]);
+        if (!empty($crossing['shipment_id'])) {
+            $db->prepare("UPDATE shipments SET status = 'released' WHERE id = ? AND deleted_at IS NULL AND status NOT IN ('delivered', 'returned', 'cancelled')")->execute([(int) $crossing['shipment_id']]);
+        }
 
         $total = self::hoursBetween((string) $crossing['arrived_at'], date('Y-m-d H:i:s'));
 
         return sprintf(
-            '%s has left the post%s.',
+            '%s has been formally released%s.',
             $crossing['reference'],
             $total === null ? '' : sprintf(', %s after arriving', self::readableHours($total))
         );
@@ -252,11 +280,43 @@ final class BorderCrossing
     public static function missingDocuments(int $id): array
     {
         $statement = Database::connection()->prepare(
-            'SELECT document_type FROM border_documents WHERE crossing_id = ? AND is_received = 0 ORDER BY id'
+            "SELECT document_type FROM border_documents WHERE crossing_id = ? AND status <> 'valid' ORDER BY id"
         );
         $statement->execute([$id]);
 
         return $statement->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    private static function outstandingCharges(int $id): int
+    {
+        $statement = Database::connection()->prepare("SELECT COUNT(*) FROM border_charges WHERE crossing_id = ? AND status = 'pending'");
+        $statement->execute([$id]);
+
+        return (int) $statement->fetchColumn();
+    }
+
+    private static function validDocuments(int $id): int
+    {
+        $statement = Database::connection()->prepare("SELECT COUNT(*) FROM border_documents WHERE crossing_id = ? AND status = 'valid'");
+        $statement->execute([$id]);
+
+        return (int) $statement->fetchColumn();
+    }
+
+    private static function hasPassedInspection(int $id): bool
+    {
+        $statement = Database::connection()->prepare("SELECT COUNT(*) FROM clearance_inspections WHERE crossing_id = ? AND result = 'passed'");
+        $statement->execute([$id]);
+
+        return (int) $statement->fetchColumn() > 0;
+    }
+
+    private static function hasRelease(int $id): bool
+    {
+        $statement = Database::connection()->prepare('SELECT COUNT(*) FROM clearance_releases WHERE crossing_id = ?');
+        $statement->execute([$id]);
+
+        return (int) $statement->fetchColumn() > 0;
     }
 
     /**
