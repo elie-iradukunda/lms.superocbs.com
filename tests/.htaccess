@@ -1,0 +1,18 @@
+# Nothing in this folder is a page. When the application is installed inside the
+# web root, a browser can otherwise ask for the source of any file in it — which
+# on a misconfigured server means the database password in plain text.
+#
+# The safer layout is to keep the application above the web root and point the
+# domain at public/, in which case this file is never consulted. It is here for
+# the installs that cannot do that.
+
+# Apache 2.4
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+# Apache 2.2
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
