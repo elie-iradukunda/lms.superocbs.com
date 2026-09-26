@@ -23,14 +23,7 @@ $format = static function (mixed $value, array $spec): string {
 
   <div class="lms-page-head">
     <div>
-      <nav aria-label="breadcrumb">
-        <ol class="breadcrumb lms-crumbs">
-          <li class="breadcrumb-item"><a href="<?= url('reports') ?>">Reports</a></li>
-          <li class="breadcrumb-item active"><?= e($report['label']) ?></li>
-        </ol>
-      </nav>
       <h2 class="lms-page-title"><i class="fe fe-bar-chart-2 mr-2"></i><?= e($report['label']) ?></h2>
-      <p class="lms-page-sub"><?= e($report['description']) ?></p>
     </div>
     <div class="lms-page-actions">
       <a class="btn btn-outline-secondary" href="<?= url(['reports', 'export', $report['key']], ['from' => $report['from'], 'to' => $report['to']]) ?>"><i class="fe fe-download fe-12 mr-1"></i>Export CSV</a>
