@@ -53,9 +53,19 @@ $minutes = isset($_GET['minutes']) ? (int) $_GET['minutes'] : 0;
     <?php endif; ?>
 
     <?php if ($accounts === []): ?>
+      <?php
+      // No accounts has two very different causes and they need opposite
+      // actions, so the page says which one it met rather than guessing.
+      $fault = database_fault_hint();
+      ?>
       <div class="alert alert-warning">
-        <strong>No active accounts yet.</strong>
-        <p class="small mb-0">Run <code>php scripts/migrate.php</code> to create the database and its first login.</p>
+        <?php if ($fault !== ''): ?>
+          <strong>The system cannot read its database.</strong>
+          <p class="small mb-0"><?= e($fault) ?></p>
+        <?php else: ?>
+          <strong>No active accounts yet.</strong>
+          <p class="small mb-0">The database is connected but has nothing in it. Import <code>database/install.sql</code>, or run <code>php scripts/migrate.php</code>.</p>
+        <?php endif; ?>
       </div>
     <?php endif; ?>
 
