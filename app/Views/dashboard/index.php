@@ -7,7 +7,7 @@
       <?php if (can_view('users')): ?><a class="alert-link ml-2" href="<?= url('permissions', ['role' => current_role()]) ?>">Review role permissions</a><?php endif; ?>
     </div>
   <?php endif; ?>
-  <div class="row justify-content-center"><div class="col-12"><div class="row align-items-center mb-2"><div class="col"><h2 class="h5 page-title"><?= htmlspecialchars($title) ?></h2><p class="small text-muted mb-0"><?= htmlspecialchars($roleSubtitle) ?></p></div></div></div>
+  <div class="row justify-content-center"><div class="col-12"><div class="row align-items-center mb-2"><div class="col"><h2 class="h5 page-title"><?= htmlspecialchars($title) ?></h2></div></div></div>
   <div class="col-12"><div class="row">
     <?php foreach ($metrics as $index => $metric): ?><div class="col-md-6 col-xl-3 mb-4"><div class="card shadow border-0 <?= $index === 2 ? 'bg-primary text-white' : '' ?>"><div class="card-body"><div class="row align-items-center"><div class="col-3 text-center"><span class="circle circle-sm <?= $index === 2 ? 'bg-primary-light' : 'bg-primary' ?>"><i class="fe fe-<?= htmlspecialchars($metric['icon']) ?> fe-16 text-white mb-0"></i></span></div><div class="col pr-0"><p class="small <?= $index === 2 ? 'text-white' : 'text-muted' ?> mb-0"><?= htmlspecialchars($metric['label']) ?></p><span class="h3 mb-0 <?= $index === 2 ? 'text-white' : '' ?>"><?= htmlspecialchars($metric['value']) ?></span><span class="small <?= $index === 2 ? 'text-white' : 'text-success' ?> ml-2"><?= htmlspecialchars($metric['trend']) ?></span></div></div></div></div></div><?php endforeach; ?>
   </div></div>
