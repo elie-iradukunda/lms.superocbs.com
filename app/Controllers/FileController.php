@@ -36,11 +36,12 @@ final class FileController
 
         // The module segment must be a real module and the file name must be a
         // plain name, so no request can walk out of the uploads folder.
-        if (!Schema::has($module) || preg_match('/^[A-Za-z0-9._-]+$/', $name) !== 1 || str_contains($name, '..')) {
+        $permission = $module === 'driver_documents' ? 'drivers' : $module;
+        if ((!Schema::has($module) && $module !== 'driver_documents') || preg_match('/^[A-Za-z0-9._-]+$/', $name) !== 1 || str_contains($name, '..')) {
             $this->fail(404, 'File not found.');
         }
 
-        if (!\role_can($module, 'view')) {
+        if (!\role_can($permission, 'view')) {
             $this->fail(403, 'This file is not available for your role.');
         }
 
