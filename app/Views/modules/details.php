@@ -130,12 +130,6 @@ if (!empty($record['rejection_reason'])) {
 
   <div class="lms-page-head">
     <div>
-      <nav aria-label="breadcrumb">
-        <ol class="breadcrumb lms-crumbs">
-          <li class="breadcrumb-item"><a href="<?= url($moduleKey) ?>"><?= e($module['title']) ?></a></li>
-          <li class="breadcrumb-item active" aria-current="page"><?= e($code) ?></li>
-        </ol>
-      </nav>
       <h2 class="lms-page-title">
         <i class="fe fe-<?= e($module['icon']) ?> mr-2"></i><?= e($code) ?>
         <?php if ($status !== ''): ?><span class="badge badge-<?= e($tone) ?> lms-status-badge"><?= e($statusLabel) ?></span><?php endif; ?>
