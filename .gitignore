@@ -1,39 +1,8 @@
-# Environment / secrets
+*.sh
+
+# Secrets: the mail API key and the database password live here, on the machine
+# that runs the app, and must never reach the repository.
 .env
-.env.*
-!.env.example
 
-# User uploads (keep folder structure via .gitkeep)
-storage/uploads/**/*
-!storage/uploads/**/
-!storage/uploads/**/.gitkeep
-
-# Logs
-*.log
-error_log
-logs/
-
-# cPanel / host-generated files
-public/.user.ini
-public/php.ini
-public/cgi-bin/
-public/.well-known/
-
-# Dependencies (if Composer/npm are ever added)
-/vendor/
-node_modules/
-
-# Database dumps / backups
-*.sql.gz
-*.bak
-backup*/
-dump*.sql
-
-# OS / editor
-.DS_Store
-Thumbs.db
-desktop.ini
-.idea/
-.vscode/
-*.swp
-*~
+# Uploaded proof of delivery, signatures, receipts and scanned documents.
+storage/uploads/
