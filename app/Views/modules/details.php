@@ -327,6 +327,7 @@ if (!empty($record['rejection_reason'])) {
                               <?php $lineValue = (string) ($line[$column] ?? ''); ?>
                               <?php if ($spec['type'] === 'select'): ?>
                                 <select class="form-control form-control-sm" name="lines[<?= $index ?>][<?= e($column) ?>]">
+                                  <option value=""><?= !empty($spec['required']) ? 'Select...' : 'None' ?></option>
                                   <?php foreach ($spec['options'] as $optionValue => $optionLabel): ?>
                                     <option value="<?= e($optionValue) ?>" <?= $lineValue === (string) $optionValue ? 'selected' : '' ?>><?= e($optionLabel) ?></option>
                                   <?php endforeach; ?>
