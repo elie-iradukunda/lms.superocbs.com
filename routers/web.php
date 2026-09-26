@@ -88,6 +88,8 @@ $router->get('/audit/export', [AuditController::class, 'export'], ['permission' 
 $modules = [
     'vehicles', 'drivers', 'vehicle_documents', 'maintenance',
     'requests', 'trips', 'shipments', 'deliveries', 'crossings', 'border_posts',
+    'shipment_documents', 'pre_dispatch_checks',
+    'clearance_documents', 'clearance_inspections', 'clearance_payments', 'clearance_releases',
     'customers', 'rates', 'invoices', 'payments',
     'fuel', 'expenses',
     'warehouses', 'warehouse', 'movements', 'procurement', 'suppliers',
