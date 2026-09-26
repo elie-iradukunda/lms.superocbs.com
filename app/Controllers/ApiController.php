@@ -108,6 +108,22 @@ final class ApiController
         $this->json(['driver_id' => $driverId, 'deliveries' => $statement->fetchAll()]);
     }
 
+    /** GET /api/my/shipments/{id}/document-pack - documents a driver may show at a border. */
+    public function documentPack(array $params): void
+    {
+        $driverId = \current_driver_id();
+        if ($driverId === null) {
+            $this->json(['error' => 'This login is not linked to a driver profile.'], 403);
+        }
+
+        $pack = \Models\DocumentPack::forDriver((int) ($params['id'] ?? 0), $driverId);
+        if ($pack === null) {
+            $this->json(['error' => 'That shipment is not assigned to you.'], 404);
+        }
+
+        $this->json($pack);
+    }
+
     /** POST /api/deliveries/{id}/{action} — complete or fail a delivery from the road. */
     public function deliveryAction(array $params): void
     {
