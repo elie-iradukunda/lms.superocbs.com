@@ -154,3 +154,26 @@ body.dark .lms-attention-primary .lms-attention-icon{background:#1f4a7c;color:#8
 .lms-attention-empty i{color:#157347}
 .lms-attention-empty p{margin:0;font-size:12px}
 body.dark .lms-attention-empty{color:#adb5bd}
+
+/* A slimmer top bar: less padding, and controls sized to the search box, so
+   more of the page shows under it. */
+.topnav{padding-top:8px;padding-bottom:8px}
+.topnav .navbar-toggler.collapseSidebar{margin-top:0!important}
+.topnav .logistics-top-control{min-height:38px;margin:4px 4px;padding:6px 11px!important}
+.topnav .logistics-top-control.lms-bell{min-width:40px;padding:6px 11px!important}
+.topnav .lms-bell .lms-bell-badge{top:2px;right:2px}
+.lms-search .form-control{height:38px}
+.topnav .avatar.avatar-sm{margin-top:0!important}
+
+/* The pages of the current sidebar section, as a row of plain links across the
+   top of the page. The active one wears the sidebar's gold, so the two agree. */
+.lms-section-nav{display:flex;gap:4px;overflow-x:auto;scrollbar-width:thin;margin:16px 0 0;padding:6px;background:#fff;border:1px solid #e3e8ec;border-radius:8px;box-shadow:0 1px 3px rgba(18,38,63,.06)}
+.lms-section-nav a{flex:0 0 auto;padding:7px 14px;border-radius:6px;color:#495057;font-size:13px;font-weight:600;white-space:nowrap;text-decoration:none}
+.lms-section-nav a:hover{background:#f6f3ea;color:#343a40;text-decoration:none}
+.lms-section-nav a.is-active{background:#ad7d00;color:#fff}
+.lms-section-nav a.is-active:hover{background:#946a00;color:#fff}
+body.dark .lms-section-nav{background:#2b3035;border-color:#3a4149;box-shadow:none}
+body.dark .lms-section-nav a{color:#ced4da}
+body.dark .lms-section-nav a:hover{background:#343a40;color:#fff}
+body.dark .lms-section-nav a.is-active{background:#ad7d00;color:#fff}
+@media print{.lms-section-nav{display:none}}
