@@ -16,7 +16,6 @@ $icons = [
     <div>
       <p class="lms-kicker">Insights</p>
       <h2 class="lms-page-title"><i class="fe fe-bar-chart-2 mr-2"></i>Reports</h2>
-      <p class="lms-page-sub">Each report runs against live operational data. Pick a period, read it on screen, export it as CSV.</p>
     </div>
     <?php if ($canEditCatalogue): ?>
       <div class="lms-page-actions">
