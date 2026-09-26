@@ -64,7 +64,6 @@ $cell = static function (mixed $value, array $spec): string {
     <div>
       <p class="lms-kicker"><?= e($module['kicker']) ?></p>
       <h2 class="lms-page-title"><i class="fe fe-<?= e($module['icon']) ?> mr-2"></i><?= e($module['title']) ?></h2>
-      <p class="lms-page-sub"><?= e($module['description']) ?></p>
     </div>
     <div class="lms-page-actions">
       <a class="btn btn-outline-secondary" href="<?= e(url([$moduleKey, 'export', 'csv'], $query)) ?>"><i class="fe fe-download fe-12 mr-1"></i>Export CSV</a>
