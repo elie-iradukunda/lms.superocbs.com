@@ -202,6 +202,58 @@ body.dark{--lms-line:#3a4149;--lms-muted:#a8b2bb;--lms-ink:#e7ecf0;--lms-surface
 .lms-auth-card{width:100%;max-width:430px;background:#fff;border-radius:14px;padding:32px;box-shadow:0 14px 40px rgba(15,25,35,.1)}
 .lms-auth-brand{display:block;margin-bottom:22px}
 .lms-auth-card h1{font-size:1.25rem;font-weight:700;margin-bottom:14px}
+/* Sign-in: a gold brand side and a white form side, cut apart along a "/"
+   slant — the brand side is full width at the top and narrower at the foot. */
+.lms-auth-split{position:relative;display:grid;grid-template-columns:1fr 1fr;width:100%;max-width:920px;min-height:520px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 18px 50px rgba(15,25,35,.18)}
+.lms-auth-side{position:relative;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;gap:24px;padding:48px 72px 84px 48px;color:#fff;background:#ad7d00;clip-path:polygon(0 0,100% 0,72% 100%,0 100%);overflow:hidden}
+.lms-auth-side-inner{position:relative;z-index:1;display:flex;align-items:center;gap:16px}
+.lms-auth-mark{display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:16px;background:#fff;color:#ad7d00;font-size:38px;font-weight:800;line-height:1;box-shadow:0 8px 20px rgba(0,0,0,.18)}
+.lms-auth-side-name{margin:0 0 2px;font-size:1.9rem;line-height:1;font-weight:800;letter-spacing:.12em}
+.lms-auth-side-tag{margin:0;font-size:.9rem;font-weight:500;opacity:.9;line-height:1.3;white-space:nowrap}
+.lms-auth-scene{display:block;width:66%;height:auto;margin-left:-8px;overflow:visible}
+.lms-scene-roof{fill:#fff;opacity:.95}
+.lms-scene-wall{fill:#fff;opacity:.82}
+.lms-scene-door{fill:#7a5800}
+.lms-scene-slat{stroke:#ad7d00;stroke-width:1.2}
+.lms-scene-label{fill:#fff;font:600 10px "DM Sans",sans-serif;letter-spacing:.02em;opacity:.95}
+/* The story told beside the truck: every step as a list, or one at a time
+   when the animation is running (the script adds .is-animated). */
+.lms-auth-story{width:100%;max-width:300px}
+.lms-auth-story ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.lms-auth-story li{display:block}
+.lms-auth-story strong{display:block;color:#fff;font-family:"Source Serif 4",Georgia,serif;font-size:1.05rem;font-weight:600;line-height:1.25}
+.lms-story-text{display:block;margin-top:2px;font-size:.84rem;line-height:1.45;opacity:.92}
+.lms-story-dots{display:none;gap:6px;margin-top:16px}
+.lms-story-dots span{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.35);transition:width .3s,background .3s}
+.lms-story-dots span.is-active{width:20px;border-radius:4px;background:#fff}
+.lms-auth-story.is-animated ol{position:relative;display:block;min-height:96px}
+.lms-auth-story.is-animated li{position:absolute;top:0;left:0;right:0}
+.lms-auth-story.is-animated strong{font-size:1.45rem}
+.lms-auth-story.is-animated .lms-story-text{margin-top:6px;font-size:.92rem}
+.lms-auth-story.is-animated .lms-story-dots{display:flex}
+.lms-scene-road{fill:#000;opacity:.18}
+.lms-scene-lane{stroke:#fff;stroke-width:1.4;stroke-dasharray:8 8;opacity:.7}
+.lms-scene-box{fill:#fff}
+.lms-scene-window{fill:#ad7d00}
+.lms-scene-wheel circle{fill:#3d2c00;stroke:#fff;stroke-width:1.6}
+.lms-scene-wheel line{stroke:#fff;stroke-width:1.2}
+/* Claude-like type on the sign-in page: DM Sans for text, Source Serif 4 for headings. */
+.lms-auth-page,.lms-auth-page .form-control,.lms-auth-page .btn{font-family:"DM Sans","Plus Jakarta Sans",system-ui,sans-serif}
+.lms-auth-split h1,.lms-auth-side-name{font-family:"Source Serif 4",Georgia,serif}
+.lms-auth-split h1{font-size:1.9rem;font-weight:600;letter-spacing:-.01em}
+.lms-auth-side-name{letter-spacing:.06em;font-weight:700}
+.lms-auth-credit{margin:28px 0 0;padding-top:14px;border-top:1px solid #eef1f4;font-size:.74rem;color:#6b757d}
+.lms-auth-split .lms-auth-brand{display:none}
+.lms-auth-split .lms-auth-form{max-width:none;margin:0;border-radius:0;box-shadow:none;background:transparent;align-self:center;padding:44px 48px 44px 8px}
+@media (max-width:767.98px){
+  .lms-auth-split{grid-template-columns:1fr;min-height:0;max-width:430px}
+  .lms-auth-side{padding:28px 28px 48px;clip-path:polygon(0 0,100% 0,100% 62%,0 100%)}
+  .lms-auth-side-name{font-size:1.4rem}
+  .lms-auth-side-tag{font-size:.8rem;white-space:normal}
+  .lms-auth-mark{width:48px;height:48px;font-size:28px;border-radius:12px}
+  .lms-auth-scene,.lms-auth-story{display:none}
+  .lms-auth-split .lms-auth-form{padding:8px 28px 32px}
+}
 .lms-auth-token{display:block;word-break:break-all;font-size:.72rem;background:#f3f5f8;padding:8px;border-radius:6px}
 .lms-rule-list{padding-left:18px;color:var(--lms-muted);font-size:.8rem;margin-bottom:0}
 .lms-rule-list li{padding:2px 0}
