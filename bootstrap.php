@@ -23,7 +23,12 @@ spl_autoload_register(static function (string $class): void {
 // console is left alone: a script wants its error in full.
 \Core\ErrorHandler::register();
 
-/** Display names for the roles. What each role may *do* now lives in `role_permissions`. */
+/**
+ * Display names for the roles, read from `roles` so that a role renamed on the
+ * permissions page is called by its new name everywhere. The list below is only
+ * what a database that cannot be read falls back to. What each role may *do*
+ * lives in `role_permissions`.
+ */
 $roleDefinitions = [
     'super_admin' => ['label' => 'Super Admin'],
     'logistics_manager' => ['label' => 'Logistics Manager'],
@@ -33,6 +38,18 @@ $roleDefinitions = [
     'finance' => ['label' => 'Finance'],
     'management' => ['label' => 'Management'],
 ];
+try {
+    $roleRows = \Core\Database::connection()->query('SELECT role_key, role_name FROM roles ORDER BY id')->fetchAll();
+    if ($roleRows !== []) {
+        $roleDefinitions = [];
+        foreach ($roleRows as $roleRow) {
+            $roleDefinitions[(string) $roleRow['role_key']] = ['label' => (string) $roleRow['role_name']];
+        }
+    }
+    unset($roleRows, $roleRow);
+} catch (\Throwable) {
+    // No database yet (a fresh install, MySQL stopped): keep the names above.
+}
 
 // ------------------------------------------------------------------- session
 
