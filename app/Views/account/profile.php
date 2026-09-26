@@ -4,23 +4,25 @@
     <div>
       <p class="lms-kicker">Account</p>
       <h2 class="lms-page-title"><i class="fe fe-user mr-2"></i>My profile</h2>
-      <p class="lms-page-sub">Your own details. Your role and permissions are managed by an administrator.</p>
     </div>
     <div class="lms-page-actions">
       <a class="btn btn-outline-secondary" href="<?= url(['account', 'password']) ?>"><i class="fe fe-key fe-12 mr-1"></i>Change password</a>
+      <button class="btn btn-primary" type="submit" form="lms-profile-form"><i class="fe fe-save fe-12 mr-1"></i>Save profile</button>
     </div>
   </div>
 
-  <div class="row">
-    <div class="col-xl-8">
-      <form method="post" action="<?= url('account') ?>" class="lms-form" enctype="multipart/form-data">
-        <?= csrf_field() ?>
-        <section class="card shadow-sm lms-section">
-          <header class="lms-section-head">
-            <span class="lms-section-num">1</span>
-            <div><h3><i class="fe fe-user fe-16 mr-2"></i>Your details</h3><p>These appear on records you create and on the audit trail.</p></div>
-          </header>
+  <form id="lms-profile-form" method="post" action="<?= url('account') ?>" class="lms-form" enctype="multipart/form-data">
+    <?= csrf_field() ?>
+    <section class="card shadow-sm lms-section lms-form-tabs">
+      <ul class="nav nav-tabs lms-tabs" role="tablist">
+        <li class="nav-item"><a class="nav-link active" id="tab-details" data-toggle="tab" href="#pane-details" role="tab" aria-controls="pane-details" aria-selected="true"><i class="fe fe-user fe-14 mr-2"></i>Your details</a></li>
+        <li class="nav-item"><a class="nav-link" id="tab-access" data-toggle="tab" href="#pane-access" role="tab" aria-controls="pane-access" aria-selected="false"><i class="fe fe-shield fe-14 mr-2"></i>Access</a></li>
+        <li class="nav-item"><a class="nav-link" id="tab-abilities" data-toggle="tab" href="#pane-abilities" role="tab" aria-controls="pane-abilities" aria-selected="false"><i class="fe fe-list fe-14 mr-2"></i>What you may do</a></li>
+      </ul>
+      <div class="tab-content">
+        <div class="tab-pane fade show active" id="pane-details" role="tabpanel" aria-labelledby="tab-details">
           <div class="card-body">
+            <p class="lms-tab-hint">These appear on records you create and on the audit trail.</p>
             <?php
             // The photograph, beside the name it belongs to. Everyone was shown
             // the same stock face before this; an account with no photo of its
@@ -87,45 +89,39 @@
               </div>
             </div>
           </div>
-        </section>
-
-        <div class="lms-form-bar">
-          <span class="small text-muted"><span class="lms-required">*</span> marks a required field</span>
-          <button class="btn btn-primary" type="submit"><i class="fe fe-save fe-12 mr-1"></i>Save profile</button>
         </div>
-      </form>
-    </div>
 
-    <div class="col-xl-4">
-      <div class="card shadow-sm lms-section">
-        <header class="lms-section-head"><div><h3><i class="fe fe-shield fe-16 mr-2"></i>Access</h3></div></header>
-        <div class="card-body">
-          <dl class="row lms-facts mb-0">
-            <dt class="col-sm-5">Role</dt><dd class="col-sm-7"><span class="badge badge-primary"><?= e($user['role_name']) ?></span></dd>
-            <dt class="col-sm-5">Department</dt><dd class="col-sm-7"><?= e($user['department'] ?? 'Not set') ?></dd>
-            <dt class="col-sm-5">Status</dt><dd class="col-sm-7"><span class="badge badge-<?= e(\Models\Schema::tone((string) $user['status'])) ?>"><?= e(\Models\Schema::label((string) $user['status'])) ?></span></dd>
-            <dt class="col-sm-5">Privilege</dt><dd class="col-sm-7"><?= (int) $user['prvg'] === 1 ? 'May switch roles' : 'Standard' ?></dd>
-            <dt class="col-sm-5">Driver profile</dt><dd class="col-sm-7"><?= $driverId === null ? '<span class="text-muted">Not linked</span>' : e('#' . $driverId) ?></dd>
-            <dt class="col-sm-5">Last login</dt><dd class="col-sm-7"><?= $user['last_login_at'] ? e(date('d M Y H:i', (int) strtotime((string) $user['last_login_at']))) : 'First session' ?></dd>
-            <dt class="col-sm-5">Password set</dt><dd class="col-sm-7"><?= $user['password_changed_at'] ? e(time_ago((string) $user['password_changed_at'])) : '<span class="text-muted">Unknown</span>' ?></dd>
-          </dl>
+        <div class="tab-pane fade" id="pane-access" role="tabpanel" aria-labelledby="tab-access">
+          <div class="card-body">
+            <p class="lms-tab-hint">Managed by an administrator.</p>
+            <dl class="row lms-facts mb-0">
+              <dt class="col-sm-5">Role</dt><dd class="col-sm-7"><span class="badge badge-primary"><?= e($user['role_name']) ?></span></dd>
+              <dt class="col-sm-5">Department</dt><dd class="col-sm-7"><?= e($user['department'] ?? 'Not set') ?></dd>
+              <dt class="col-sm-5">Status</dt><dd class="col-sm-7"><span class="badge badge-<?= e(\Models\Schema::tone((string) $user['status'])) ?>"><?= e(\Models\Schema::label((string) $user['status'])) ?></span></dd>
+              <dt class="col-sm-5">Privilege</dt><dd class="col-sm-7"><?= (int) $user['prvg'] === 1 ? 'May switch roles' : 'Standard' ?></dd>
+              <dt class="col-sm-5">Driver profile</dt><dd class="col-sm-7"><?= $driverId === null ? '<span class="text-muted">Not linked</span>' : e('#' . $driverId) ?></dd>
+              <dt class="col-sm-5">Last login</dt><dd class="col-sm-7"><?= $user['last_login_at'] ? e(date('d M Y H:i', (int) strtotime((string) $user['last_login_at']))) : 'First session' ?></dd>
+              <dt class="col-sm-5">Password set</dt><dd class="col-sm-7"><?= $user['password_changed_at'] ? e(time_ago((string) $user['password_changed_at'])) : '<span class="text-muted">Unknown</span>' ?></dd>
+            </dl>
+          </div>
         </div>
-      </div>
 
-      <div class="card shadow-sm lms-section">
-        <header class="lms-section-head"><div><h3><i class="fe fe-list fe-16 mr-2"></i>What you may do</h3></div></header>
-        <div class="card-body">
-          <ul class="list-unstyled small mb-0 lms-permission-list">
-            <?php foreach (\Models\Permission::forRole(current_role()) as $permissionKey => $abilities): ?>
-              <li>
-                <strong><?= e(ucfirst(str_replace('_', ' ', (string) $permissionKey))) ?></strong>
-                <span class="text-muted"><?= e(implode(', ', array_keys(array_filter($abilities)))) ?></span>
-              </li>
-            <?php endforeach; ?>
-          </ul>
+        <div class="tab-pane fade" id="pane-abilities" role="tabpanel" aria-labelledby="tab-abilities">
+          <div class="card-body">
+            <ul class="list-unstyled small mb-0 lms-permission-list">
+              <?php foreach (\Models\Permission::forRole(current_role()) as $permissionKey => $abilities): ?>
+                <li>
+                  <strong><?= e(ucfirst(str_replace('_', ' ', (string) $permissionKey))) ?></strong>
+                  <span class="text-muted"><?= e(implode(', ', array_keys(array_filter($abilities)))) ?></span>
+                </li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
         </div>
       </div>
-    </div>
-  </div>
+    </section>
+
+    <p class="small text-muted mt-n2"><span class="lms-required">*</span> marks a required field</p>
+  </form>
 </div>
 <?php require __DIR__ . '/../layouts/footer.php'; ?>
