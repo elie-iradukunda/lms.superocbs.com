@@ -8,12 +8,6 @@ $status = (string) $message['status'];
 
   <div class="lms-page-head">
     <div>
-      <nav aria-label="breadcrumb">
-        <ol class="breadcrumb lms-crumbs">
-          <li class="breadcrumb-item"><a href="<?= url('email') ?>">Email outbox</a></li>
-          <li class="breadcrumb-item active">Message</li>
-        </ol>
-      </nav>
       <h2 class="lms-page-title">
         <i class="fe fe-mail mr-2"></i><?= e($message['subject']) ?>
         <span class="badge badge-<?= e($tone[$status] ?? 'secondary') ?> lms-status-badge"><?= e($statusLabel[$status] ?? ucfirst($status)) ?></span>
