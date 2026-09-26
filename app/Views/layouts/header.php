@@ -187,6 +187,42 @@ $searchIndex[] = ['label' => 'My profile', 'url' => url('account'), 'group' => '
     </nav>
   </aside>
   <main role="main" class="main-content">
+    <?php
+    // The sidebar group the current page belongs to, repeated across the top
+    // of the page as plain links, so its sister pages are one click away
+    // without opening the sidebar.
+    $sectionLinks = [];
+    $requestPath = rtrim((string) (parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'), '/');
+    foreach ($navigation as $group) {
+        if (nav_group($group['routes'])) {
+            foreach ($group['items'] as [$route, $label]) {
+                $sectionLinks[] = [url($route), $label, current_route() === $route];
+            }
+        }
+    }
+    if (current_route() === 'reports' && can_view('reports')) {
+        $sectionLinks[] = [url('reports'), 'All reports', $requestPath === rtrim(url('reports'), '/')];
+        foreach (\Models\ReportData::availableFor(current_role()) as $reportKey => $reportLabel) {
+            $sectionLinks[] = [url(['reports', 'view', $reportKey]), $reportLabel, str_ends_with($requestPath, '/reports/view/' . $reportKey)];
+        }
+    }
+    if (nav_group(['users', 'permissions', 'lookups', 'settings', 'audit', 'email'])) {
+        foreach ([['users', 'Users', 'users'], ['permissions', 'Role permissions', 'users'], ['lookups', 'Reference lists', 'lookups'], ['settings', 'Company settings', 'settings'], ['email', 'Email outbox', 'email'], ['audit', 'Audit trail', 'audit']] as [$route, $label, $permission]) {
+            if (can_view($permission)) {
+                $sectionLinks[] = [url($route), $label, current_route() === $route];
+            }
+        }
+    }
+    ?>
+    <?php if (count($sectionLinks) > 1): ?>
+      <div class="container-fluid">
+        <nav class="lms-section-nav" aria-label="Pages in this section">
+          <?php foreach ($sectionLinks as [$href, $label, $isActive]): ?>
+            <a href="<?= e($href) ?>"<?= $isActive ? ' class="is-active" aria-current="page"' : '' ?>><?= e($label) ?></a>
+          <?php endforeach; ?>
+        </nav>
+      </div>
+    <?php endif; ?>
     <?php if ($flashes !== []): ?>
       <div class="container-fluid pt-3">
         <?php foreach ($flashes as $flash): ?>
