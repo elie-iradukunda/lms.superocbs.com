@@ -31,7 +31,7 @@ final class Schema
     public const TRIP_STATUS = ['requested' => 'Requested', 'approved' => 'Approved', 'loading' => 'Loading', 'in_transit' => 'In transit', 'delivered' => 'Delivered', 'cancelled' => 'Cancelled'];
     public const REQUEST_STATUS = ['pending' => 'Pending', 'quoted' => 'Quoted', 'approved' => 'Approved', 'assigned' => 'Assigned', 'rejected' => 'Rejected', 'cancelled' => 'Cancelled'];
     public const DELIVERY_STATUS = ['loading' => 'Loading', 'in_transit' => 'In transit', 'at_destination' => 'At destination', 'delivered' => 'Delivered', 'failed' => 'Failed'];
-    public const SHIPMENT_STATUS = ['draft' => 'Draft', 'booked' => 'Booked', 'loaded' => 'Loaded', 'in_transit' => 'In transit', 'delivered' => 'Delivered', 'returned' => 'Returned', 'cancelled' => 'Cancelled'];
+    public const SHIPMENT_STATUS = ['draft' => 'Draft', 'booked' => 'Booked', 'loaded' => 'Loaded', 'cleared' => 'Cleared', 'released' => 'Released', 'in_transit' => 'In transit', 'delivered' => 'Delivered', 'returned' => 'Returned', 'cancelled' => 'Cancelled'];
     public const STOCK_STATUS = ['in_stock' => 'In stock', 'reorder' => 'Reorder', 'out_of_stock' => 'Out of stock'];
     public const PURCHASE_STATUS = ['draft' => 'Draft', 'quotation' => 'Quotation', 'approved' => 'Approved', 'received' => 'Received', 'rejected' => 'Rejected'];
     public const MAINTENANCE_STATUS = ['open' => 'Open', 'scheduled' => 'Scheduled', 'in_progress' => 'In progress', 'completed' => 'Completed', 'cancelled' => 'Cancelled'];
@@ -44,12 +44,12 @@ final class Schema
     /** Badge colour for a status value, so one status reads the same on every screen. */
     public const TONES = [
         'available' => 'success', 'active' => 'success', 'in_stock' => 'success', 'valid' => 'success',
-        'completed' => 'success', 'delivered' => 'success', 'approved' => 'success', 'received' => 'success',
+        'completed' => 'success', 'delivered' => 'success', 'approved' => 'success', 'received' => 'success', 'cleared' => 'success', 'released' => 'success', 'passed' => 'success',
         'paid' => 'success', 'issued' => 'info', 'booked' => 'info', 'assigned' => 'info', 'scheduled' => 'info',
         'on_trip' => 'primary', 'in_transit' => 'primary', 'loading' => 'primary', 'loaded' => 'primary',
         'in_progress' => 'primary', 'quotation' => 'primary', 'partially_paid' => 'primary',
-        'pending' => 'warning', 'requested' => 'warning', 'reorder' => 'warning', 'open' => 'warning',
-        'draft' => 'secondary', 'off_duty' => 'secondary', 'on_hold' => 'warning', 'expiring' => 'warning',
+        'pending' => 'warning', 'requested' => 'warning', 'reorder' => 'warning', 'open' => 'warning', 'documents_pending' => 'warning', 'duties_pending' => 'warning', 'payment_pending' => 'warning',
+        'draft' => 'secondary', 'off_duty' => 'secondary', 'on_hold' => 'warning', 'expiring' => 'warning', 'declaration_submitted' => 'info', 'under_review' => 'primary', 'inspection' => 'warning',
         'maintenance' => 'warning', 'overdue' => 'danger', 'failed' => 'danger', 'rejected' => 'danger',
         'cancelled' => 'danger', 'out_of_stock' => 'danger', 'expired' => 'danger', 'returned' => 'danger',
         'inactive' => 'secondary', 'locked' => 'danger',
@@ -87,7 +87,7 @@ final class Schema
             return self::$modules;
         }
 
-        self::$modules = self::fleet() + self::transport() + self::commercial() + self::finance() + self::warehouse() + self::administration();
+        self::$modules = self::fleet() + self::transport() + self::documentPack() + self::clearance() + self::commercial() + self::finance() + self::warehouse() + self::administration();
 
         foreach (self::$modules as $key => $module) {
             self::$modules[$key]['key'] = $key;
@@ -761,6 +761,84 @@ final class Schema
         ];
     }
 
+    // ------------------------------------------------------- document packs
+
+    private static function documentPack(): array
+    {
+        $shipment = ['table' => 'shipments', 'label' => 'shipment_code', 'where' => 'deleted_at IS NULL'];
+        return [
+            'shipment_documents' => [
+                'title' => 'Shipment documents', 'singular' => 'Shipment document', 'kicker' => 'Pre-dispatch', 'icon' => 'file-text', 'description' => 'Documents the driver carries for a shipment.', 'button' => 'Add document', 'table' => 'shipment_documents', 'alias' => 'sd', 'code' => 'document_type', 'order' => 'sd.id DESC', 'soft_delete' => false,
+                'joins' => 'INNER JOIN shipments s ON s.id = sd.shipment_id', 'select' => ['sd.id', 'sd.document_type', 'sd.document_number', 's.shipment_code AS shipment', 'sd.expiry_date', 'sd.status'], 'search' => ['sd.document_type', 'sd.document_number', 's.shipment_code'],
+                'list' => ['document_type' => ['label' => 'Document', 'type' => 'code'], 'document_number' => ['label' => 'Number'], 'shipment' => ['label' => 'Shipment'], 'expiry_date' => ['label' => 'Expires', 'type' => 'date'], 'status' => ['label' => 'Status', 'type' => 'badge']], 'filters' => ['status' => ['label' => 'Status', 'column' => 'sd.status', 'options' => ['pending' => 'Pending', 'valid' => 'Valid', 'rejected' => 'Rejected', 'expired' => 'Expired']]],
+                'sections' => [['title' => 'Document', 'icon' => 'file-text', 'fields' => ['shipment_id', 'document_type', 'document_number', 'issue_date', 'expiry_date', 'status']], ['title' => 'File', 'icon' => 'paperclip', 'fields' => ['document_file', 'notes']]],
+                'fields' => ['shipment_id' => ['label' => 'Shipment', 'type' => 'relation', 'required' => true, 'width' => 4, 'relation' => $shipment], 'document_type' => ['label' => 'Document type', 'type' => 'select', 'required' => true, 'width' => 4, 'options' => self::packDocumentTypes()], 'document_number' => ['label' => 'Number', 'type' => 'text', 'width' => 4], 'issue_date' => ['label' => 'Issue date', 'type' => 'date', 'width' => 3], 'expiry_date' => ['label' => 'Expiry date', 'type' => 'date', 'width' => 3], 'status' => ['label' => 'Status', 'type' => 'select', 'required' => true, 'width' => 3, 'options' => ['pending' => 'Pending', 'valid' => 'Valid', 'rejected' => 'Rejected', 'expired' => 'Expired']], 'document_file' => ['label' => 'File', 'type' => 'file', 'width' => 3], 'notes' => ['label' => 'Notes', 'type' => 'textarea', 'width' => 12]],
+            ],
+            'pre_dispatch_checks' => [
+                'title' => 'Pre-dispatch checks', 'singular' => 'Pre-dispatch check', 'kicker' => 'Dispatch readiness', 'icon' => 'check-square', 'description' => 'Final cargo, document, truck, driver and route check before dispatch.', 'button' => 'Run check', 'table' => 'shipment_pre_dispatch_checks', 'alias' => 'pc', 'code' => 'id', 'order' => 'pc.id DESC', 'soft_delete' => false,
+                'joins' => 'INNER JOIN shipments s ON s.id = pc.shipment_id', 'select' => ['pc.id', 's.shipment_code AS shipment', 'pc.cargo_loaded', 'pc.documents_verified', 'pc.vehicle_verified', 'pc.driver_verified', 'pc.route_verified', 'pc.status', 'pc.checked_at'], 'search' => ['s.shipment_code'], 'list' => ['shipment' => ['label' => 'Shipment', 'type' => 'code'], 'cargo_loaded' => ['label' => 'Loaded', 'type' => 'yesno'], 'documents_verified' => ['label' => 'Documents', 'type' => 'yesno'], 'vehicle_verified' => ['label' => 'Truck', 'type' => 'yesno'], 'driver_verified' => ['label' => 'Driver', 'type' => 'yesno'], 'route_verified' => ['label' => 'Route', 'type' => 'yesno'], 'status' => ['label' => 'Status', 'type' => 'badge']], 'filters' => ['status' => ['label' => 'Status', 'column' => 'pc.status', 'options' => ['pending' => 'Pending', 'ready' => 'Ready for dispatch', 'not_ready' => 'Not ready']]],
+                'sections' => [['title' => 'Final check', 'icon' => 'check-square', 'fields' => ['shipment_id', 'cargo_loaded', 'quantity_verified', 'packaging_verified', 'documents_verified', 'vehicle_verified', 'driver_verified', 'route_verified', 'status']], ['title' => 'Record', 'icon' => 'file-text', 'fields' => ['checked_by', 'checked_at', 'notes']]],
+                'fields' => ['shipment_id' => ['label' => 'Shipment', 'type' => 'relation', 'required' => true, 'width' => 4, 'relation' => $shipment], 'cargo_loaded' => ['label' => 'Cargo loaded', 'type' => 'checkbox', 'width' => 3], 'quantity_verified' => ['label' => 'Quantity verified', 'type' => 'checkbox', 'width' => 3], 'packaging_verified' => ['label' => 'Packaging verified', 'type' => 'checkbox', 'width' => 3], 'documents_verified' => ['label' => 'Documents verified', 'type' => 'checkbox', 'width' => 3], 'vehicle_verified' => ['label' => 'Truck verified', 'type' => 'checkbox', 'width' => 3], 'driver_verified' => ['label' => 'Driver verified', 'type' => 'checkbox', 'width' => 3], 'route_verified' => ['label' => 'Route verified', 'type' => 'checkbox', 'width' => 3], 'status' => ['label' => 'Readiness', 'type' => 'select', 'required' => true, 'width' => 3, 'options' => ['pending' => 'Pending', 'ready' => 'Ready for dispatch', 'not_ready' => 'Not ready']], 'checked_by' => ['label' => 'Checked by', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'users', 'label' => 'full_name', 'where' => 'deleted_at IS NULL']], 'checked_at' => ['label' => 'Checked at', 'type' => 'datetime', 'width' => 4], 'notes' => ['label' => 'Notes', 'type' => 'textarea', 'width' => 12]],
+            ],
+        ];
+    }
+
+    // ------------------------------------------------------ clearance children
+
+    private static function clearance(): array
+    {
+        $crossingRelation = ['table' => 'border_crossings', 'label' => 'reference', 'where' => 'deleted_at IS NULL'];
+
+        return [
+            'clearance_documents' => [
+                'title' => 'Clearance documents', 'singular' => 'Clearance document', 'kicker' => 'Shipment clearance', 'icon' => 'file-text',
+                'description' => 'The supporting papers for each customs clearance, including their validity and attachment.', 'button' => 'Add document',
+                'table' => 'border_documents', 'alias' => 'cd', 'code' => 'document_type', 'order' => 'cd.id DESC', 'soft_delete' => false,
+                'joins' => 'INNER JOIN border_crossings bc ON bc.id = cd.crossing_id',
+                'select' => ['cd.id', 'cd.document_type', 'cd.document_no', 'bc.reference AS clearance', 'cd.issued_on', 'cd.expires_on', 'cd.status'],
+                'search' => ['cd.document_type', 'cd.document_no', 'bc.reference'],
+                'list' => ['document_type' => ['label' => 'Document', 'type' => 'code'], 'document_no' => ['label' => 'Number', 'empty' => '-'], 'clearance' => ['label' => 'Clearance'], 'issued_on' => ['label' => 'Issued', 'type' => 'date'], 'expires_on' => ['label' => 'Expires', 'type' => 'date'], 'status' => ['label' => 'Status', 'type' => 'badge']],
+                'filters' => ['status' => ['label' => 'Status', 'column' => 'cd.status', 'options' => ['pending' => 'Pending', 'valid' => 'Valid', 'rejected' => 'Rejected', 'expired' => 'Expired']]],
+                'sections' => [['title' => 'Document', 'icon' => 'file-text', 'fields' => ['crossing_id', 'document_type', 'document_no', 'issued_on', 'expires_on', 'status']], ['title' => 'Attachment and notes', 'icon' => 'paperclip', 'fields' => ['document_file', 'notes']]],
+                'fields' => [
+                    'crossing_id' => ['label' => 'Clearance', 'type' => 'relation', 'required' => true, 'width' => 4, 'relation' => $crossingRelation],
+                    'document_type' => ['label' => 'Document type', 'type' => 'select', 'required' => true, 'width' => 4, 'options' => Lookup::options('border_document')],
+                    'document_no' => ['label' => 'Document number', 'type' => 'text', 'width' => 4],
+                    'issued_on' => ['label' => 'Issue date', 'type' => 'date', 'width' => 3], 'expires_on' => ['label' => 'Expiry date', 'type' => 'date', 'width' => 3],
+                    'status' => ['label' => 'Document status', 'type' => 'select', 'required' => true, 'width' => 3, 'options' => ['pending' => 'Pending', 'valid' => 'Valid', 'rejected' => 'Rejected', 'expired' => 'Expired']],
+                    'document_file' => ['label' => 'Document file', 'type' => 'file', 'width' => 3], 'notes' => ['label' => 'Notes', 'type' => 'textarea', 'width' => 12],
+                ],
+            ],
+            'clearance_inspections' => [
+                'title' => 'Clearance inspections', 'singular' => 'Inspection', 'kicker' => 'Shipment clearance', 'icon' => 'search', 'description' => 'Customs inspection appointments and outcomes.', 'button' => 'Add inspection',
+                'table' => 'clearance_inspections', 'alias' => 'ci', 'code' => 'inspection_type', 'order' => 'ci.scheduled_at DESC, ci.id DESC', 'soft_delete' => false,
+                'joins' => 'INNER JOIN border_crossings bc ON bc.id = ci.crossing_id', 'select' => ['ci.id', 'ci.inspection_type', 'bc.reference AS clearance', 'ci.scheduled_at', 'ci.location', 'ci.inspector', 'ci.result'],
+                'search' => ['ci.inspection_type', 'ci.location', 'ci.inspector', 'bc.reference'],
+                'list' => ['inspection_type' => ['label' => 'Inspection', 'type' => 'code'], 'clearance' => ['label' => 'Clearance'], 'scheduled_at' => ['label' => 'Scheduled', 'type' => 'datetime'], 'location' => ['label' => 'Location'], 'inspector' => ['label' => 'Inspector'], 'result' => ['label' => 'Result', 'type' => 'badge']],
+                'filters' => ['result' => ['label' => 'Result', 'column' => 'ci.result', 'options' => ['pending' => 'Pending', 'passed' => 'Passed', 'failed' => 'Failed']]],
+                'sections' => [['title' => 'Inspection', 'icon' => 'search', 'fields' => ['crossing_id', 'inspection_type', 'scheduled_at', 'location', 'inspector', 'result']], ['title' => 'Remarks', 'icon' => 'file-text', 'fields' => ['remarks']]],
+                'fields' => ['crossing_id' => ['label' => 'Clearance', 'type' => 'relation', 'required' => true, 'width' => 4, 'relation' => $crossingRelation], 'inspection_type' => ['label' => 'Inspection type', 'type' => 'text', 'required' => true, 'width' => 4], 'scheduled_at' => ['label' => 'Scheduled date', 'type' => 'datetime', 'width' => 4], 'location' => ['label' => 'Location', 'type' => 'text', 'width' => 4], 'inspector' => ['label' => 'Inspector', 'type' => 'text', 'width' => 4], 'result' => ['label' => 'Result', 'type' => 'select', 'required' => true, 'width' => 4, 'options' => ['pending' => 'Pending', 'passed' => 'Passed', 'failed' => 'Failed']], 'remarks' => ['label' => 'Remarks', 'type' => 'textarea', 'width' => 12]],
+            ],
+            'clearance_payments' => [
+                'title' => 'Clearance payments', 'singular' => 'Clearance payment', 'kicker' => 'Shipment clearance', 'icon' => 'credit-card', 'description' => 'Payments made for customs duty, taxes and clearance fees.', 'button' => 'Add payment',
+                'table' => 'clearance_payments', 'alias' => 'cp', 'code' => 'reference', 'order' => 'cp.payment_date DESC, cp.id DESC', 'soft_delete' => false,
+                'joins' => 'INNER JOIN border_crossings bc ON bc.id = cp.crossing_id', 'select' => ['cp.id', 'cp.reference', 'bc.reference AS clearance', 'cp.amount', 'cp.currency', 'cp.payment_method', 'cp.payment_date', 'cp.status'],
+                'search' => ['cp.reference', 'cp.payment_method', 'bc.reference'], 'list' => ['reference' => ['label' => 'Reference', 'type' => 'code'], 'clearance' => ['label' => 'Clearance'], 'amount' => ['label' => 'Amount', 'type' => 'money'], 'payment_method' => ['label' => 'Method'], 'payment_date' => ['label' => 'Date', 'type' => 'date'], 'status' => ['label' => 'Status', 'type' => 'badge']],
+                'filters' => ['status' => ['label' => 'Status', 'column' => 'cp.status', 'options' => ['pending' => 'Pending', 'paid' => 'Paid', 'failed' => 'Failed']]],
+                'sections' => [['title' => 'Payment', 'icon' => 'credit-card', 'fields' => ['crossing_id', 'amount', 'currency', 'payment_method', 'reference', 'payment_date', 'status']], ['title' => 'Notes', 'icon' => 'file-text', 'fields' => ['notes']]],
+                'fields' => ['crossing_id' => ['label' => 'Clearance', 'type' => 'relation', 'required' => true, 'width' => 4, 'relation' => $crossingRelation], 'amount' => ['label' => 'Amount', 'type' => 'money', 'required' => true, 'width' => 3], 'currency' => ['label' => 'Currency', 'type' => 'select', 'required' => true, 'width' => 2, 'options' => Currency::options()], 'payment_method' => ['label' => 'Payment method', 'type' => 'text', 'width' => 3], 'reference' => ['label' => 'Payment reference', 'type' => 'text', 'width' => 4], 'payment_date' => ['label' => 'Payment date', 'type' => 'date', 'width' => 3], 'status' => ['label' => 'Status', 'type' => 'select', 'required' => true, 'width' => 3, 'options' => ['pending' => 'Pending', 'paid' => 'Paid', 'failed' => 'Failed']], 'notes' => ['label' => 'Notes', 'type' => 'textarea', 'width' => 12]],
+            ],
+            'clearance_releases' => [
+                'title' => 'Clearance releases', 'singular' => 'Release', 'kicker' => 'Shipment clearance', 'icon' => 'check-circle', 'description' => 'The formal customs release issued after clearance.', 'button' => 'Add release',
+                'table' => 'clearance_releases', 'alias' => 'cr', 'code' => 'release_number', 'order' => 'cr.release_date DESC, cr.id DESC', 'soft_delete' => false,
+                'joins' => 'INNER JOIN border_crossings bc ON bc.id = cr.crossing_id LEFT JOIN users u ON u.id = cr.released_by', 'select' => ['cr.id', 'cr.release_number', 'bc.reference AS clearance', 'cr.release_date', 'u.full_name AS released_by'],
+                'search' => ['cr.release_number', 'bc.reference', 'u.full_name'], 'list' => ['release_number' => ['label' => 'Release number', 'type' => 'code'], 'clearance' => ['label' => 'Clearance'], 'release_date' => ['label' => 'Release date', 'type' => 'date'], 'released_by' => ['label' => 'Released by']],
+                'sections' => [['title' => 'Release', 'icon' => 'check-circle', 'fields' => ['crossing_id', 'release_number', 'release_date', 'released_by']], ['title' => 'Remarks', 'icon' => 'file-text', 'fields' => ['remarks']]],
+                'fields' => ['crossing_id' => ['label' => 'Clearance', 'type' => 'relation', 'required' => true, 'width' => 4, 'relation' => $crossingRelation], 'release_number' => ['label' => 'Release number', 'type' => 'text', 'required' => true, 'width' => 4], 'release_date' => ['label' => 'Release date', 'type' => 'date', 'required' => true, 'width' => 4], 'released_by' => ['label' => 'Released by', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'users', 'label' => 'full_name', 'where' => 'deleted_at IS NULL']], 'remarks' => ['label' => 'Remarks', 'type' => 'textarea', 'width' => 12]],
+            ],
+        ];
+    }
+
     // ------------------------------------------------------------ commercial
 
     private static function commercial(): array
@@ -809,12 +887,12 @@ final class Schema
             ],
 
             'crossings' => [
-                'title' => 'Border crossings',
-                'singular' => 'Crossing',
-                'kicker' => 'Cross-border',
+                'title' => 'Customs clearance',
+                'singular' => 'Clearance record',
+                'kicker' => 'Shipment clearance',
                 'icon' => 'flag',
                 'description' => 'A truck at a border post: which papers it is waiting on, what was paid to release it, and how long it stood there. The four times are the point of the record — the gaps between them are where a cross-border run loses its money.',
-                'button' => 'Record a crossing',
+                'button' => 'Start clearance',
                 'table' => 'border_crossings',
                 'alias' => 'bc',
                 'code' => 'reference',
@@ -836,15 +914,15 @@ final class Schema
                     'status' => ['label' => 'Status', 'type' => 'badge'],
                 ],
                 'filters' => [
-                    'status' => ['label' => 'Status', 'column' => 'bc.status', 'options' => ['expected' => 'Expected', 'at_border' => 'At the border', 'lodged' => 'Lodged', 'held' => 'Held', 'cleared' => 'Cleared', 'departed' => 'Departed']],
+                    'status' => ['label' => 'Status', 'column' => 'bc.status', 'options' => self::clearanceStatuses()],
                     'border_post_id' => ['label' => 'Post', 'column' => 'bc.border_post_id', 'options' => []],
                     'direction' => ['label' => 'Direction', 'column' => 'bc.direction', 'options' => ['export' => 'Export', 'import' => 'Import', 'transit' => 'Transit']],
                 ],
                 'sections' => [
-                    ['title' => 'The crossing', 'icon' => 'flag', 'hint' => 'Transit means the load is only passing through on its way elsewhere.', 'fields' => ['reference', 'border_post_id', 'direction', 'trip_id', 'shipment_id']],
+                    ['title' => 'The clearance', 'icon' => 'flag', 'hint' => 'Each clearance belongs directly to the shipment customs is processing.', 'fields' => ['reference', 'border_post_id', 'customs_country', 'direction', 'trip_id', 'shipment_id']],
                     ['title' => 'Truck and agent', 'icon' => 'truck', 'fields' => ['vehicle_id', 'driver_id', 'clearing_agent_id']],
                     ['title' => 'Customs references', 'icon' => 'hash', 'fields' => ['declaration_no', 'transit_bond_no', 'seal_no', 'weighbridge_kg']],
-                    ['title' => 'The clock', 'icon' => 'clock', 'hint' => 'Filled in by the buttons above. Type over them only when catching up.', 'fields' => ['arrived_at', 'lodged_at', 'cleared_at', 'departed_at']],
+                    ['title' => 'The clock', 'icon' => 'clock', 'hint' => 'The workflow stamps these milestones as clearance advances.', 'fields' => ['arrived_at', 'submitted_at', 'lodged_at', 'approved_at', 'cleared_at', 'released_at', 'departed_at']],
                     ['title' => 'What it cost', 'icon' => 'dollar-sign', 'hint' => 'Add each charge under Border charges below.', 'fields' => ['charges_total', 'currency']],
                     ['title' => 'Held or noted', 'icon' => 'alert-triangle', 'fields' => ['status', 'hold_reason', 'notes']],
                 ],
@@ -853,7 +931,8 @@ final class Schema
                     'border_post_id' => ['label' => 'Border post', 'type' => 'relation', 'required' => true, 'width' => 4, 'relation' => ['table' => 'border_posts', 'label' => 'post_name', 'where' => 'deleted_at IS NULL AND is_active = 1']],
                     'direction' => ['label' => 'Direction', 'type' => 'select', 'required' => true, 'width' => 2, 'options' => ['export' => 'Export', 'import' => 'Import', 'transit' => 'Transit']],
                     'trip_id' => ['label' => 'On trip', 'type' => 'relation', 'width' => 3, 'relation' => ['table' => 'trips', 'label' => 'reference_code', 'where' => 'deleted_at IS NULL'], ],
-                    'shipment_id' => ['label' => 'Shipment', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'shipments', 'label' => 'shipment_code', 'where' => 'deleted_at IS NULL', 'depends_on' => ['field' => 'trip_id', 'column' => 'trip_id']], 'help' => 'Only the loads on the trip above.'],
+                    'shipment_id' => ['label' => 'Shipment', 'type' => 'relation', 'required' => true, 'width' => 4, 'relation' => ['table' => 'shipments', 'label' => 'shipment_code', 'where' => 'deleted_at IS NULL'], 'help' => 'The shipment customs is processing.'],
+                    'customs_country' => ['label' => 'Customs country', 'type' => 'text', 'width' => 3, 'placeholder' => 'Rwanda'],
                     'vehicle_id' => ['label' => 'Vehicle', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'vehicles', 'label' => 'plate_number', 'where' => 'deleted_at IS NULL']],
                     'driver_id' => ['label' => 'Driver', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'drivers', 'label' => 'full_name', 'where' => 'deleted_at IS NULL']],
                     'clearing_agent_id' => ['label' => 'Clearing agent', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'suppliers', 'label' => 'supplier_name', 'where' => "deleted_at IS NULL AND status = 'active'"], ],
@@ -863,11 +942,14 @@ final class Schema
                     'weighbridge_kg' => ['label' => 'Weighbridge', 'type' => 'decimal', 'width' => 3, 'suffix' => 'kg'],
                     'arrived_at' => ['label' => 'Arrived at the post', 'type' => 'datetime', 'width' => 3],
                     'lodged_at' => ['label' => 'Declaration lodged', 'type' => 'datetime', 'width' => 3],
+                    'submitted_at' => ['label' => 'Submitted', 'type' => 'datetime', 'width' => 3, 'readonly' => true, 'readonly_note' => 'from workflow'],
+                    'approved_at' => ['label' => 'Approved for assessment', 'type' => 'datetime', 'width' => 3, 'readonly' => true, 'readonly_note' => 'from workflow'],
                     'cleared_at' => ['label' => 'Released by customs', 'type' => 'datetime', 'width' => 3],
+                    'released_at' => ['label' => 'Formal release', 'type' => 'datetime', 'width' => 3, 'readonly' => true, 'readonly_note' => 'from workflow'],
                     'departed_at' => ['label' => 'Left the post', 'type' => 'datetime', 'width' => 3],
                     'charges_total' => ['label' => 'Charges', 'type' => 'money', 'width' => 3, 'readonly' => true, 'readonly_note' => 'added from the lines', 'help' => 'Added up from the charge lines.'],
                     'currency' => ['label' => 'Paid in', 'type' => 'select', 'width' => 3, 'options' => Currency::options(), ],
-                    'status' => ['label' => 'Status', 'type' => 'select', 'required' => true, 'width' => 4, 'options' => ['expected' => 'Expected', 'at_border' => 'At the border', 'lodged' => 'Lodged', 'held' => 'Held', 'cleared' => 'Cleared', 'departed' => 'Departed'], 'readonly' => true, 'readonly_note' => 'set by the buttons above'],
+                    'status' => ['label' => 'Status', 'type' => 'select', 'required' => true, 'width' => 4, 'options' => self::clearanceStatuses(), 'readonly' => true, 'readonly_note' => 'set by the workflow'],
                     'hold_reason' => ['label' => 'Held because', 'type' => 'text', 'width' => 8, 'readonly' => true, 'readonly_note' => 'from the hold'],
                     'notes' => ['label' => 'Notes', 'type' => 'textarea', 'width' => 12],
                 ],
@@ -881,21 +963,43 @@ final class Schema
                         'charge_type' => ['label' => 'Charge', 'type' => 'select', 'required' => true, 'options' => Lookup::options('border_charge')],
                         'description' => ['label' => 'Description', 'type' => 'text'],
                         'receipt_no' => ['label' => 'Receipt', 'type' => 'text'],
+                        'tax_rate' => ['label' => 'Rate %', 'type' => 'decimal'],
+                        'taxable_amount' => ['label' => 'Taxable amount', 'type' => 'money'],
                         'amount' => ['label' => 'Amount', 'type' => 'money'],
+                        'status' => ['label' => 'Payment', 'type' => 'select', 'options' => ['pending' => 'Pending', 'paid' => 'Paid', 'waived' => 'Waived']],
                     ],
                 ],
+                'links' => [
+                    ['label' => 'Add document', 'route' => 'clearance_documents/create', 'permission' => 'clearance_documents', 'ability' => 'create', 'tone' => 'secondary', 'icon' => 'file-text', 'carry' => ['crossing_id' => 'id']],
+                    ['label' => 'Add inspection', 'route' => 'clearance_inspections/create', 'permission' => 'clearance_inspections', 'ability' => 'create', 'tone' => 'secondary', 'icon' => 'search', 'carry' => ['crossing_id' => 'id']],
+                    ['label' => 'Add payment', 'route' => 'clearance_payments/create', 'permission' => 'clearance_payments', 'ability' => 'create', 'tone' => 'secondary', 'icon' => 'credit-card', 'carry' => ['crossing_id' => 'id']],
+                    ['label' => 'Create release', 'route' => 'clearance_releases/create', 'permission' => 'clearance_releases', 'ability' => 'create', 'tone' => 'secondary', 'icon' => 'check-circle', 'carry' => ['crossing_id' => 'id']],
+                ],
                 'actions' => [
-                    'arrive' => ['label' => 'Arrived at post', 'to' => 'at_border', 'from' => ['expected'], 'tone' => 'primary'],
-                    'lodge' => ['label' => 'Declaration lodged', 'to' => 'lodged', 'from' => ['at_border', 'held'], 'tone' => 'primary'],
-                    'hold' => ['label' => 'Record a hold', 'to' => 'held', 'from' => ['at_border', 'lodged'], 'tone' => 'danger', 'reason' => true],
-                    'clear' => ['label' => 'Released by customs', 'to' => 'cleared', 'from' => ['lodged', 'held'], 'tone' => 'success'],
-                    'depart' => ['label' => 'Left the post', 'to' => 'departed', 'from' => ['cleared'], 'tone' => 'success'],
+                    'prepare_documents' => ['label' => 'Collect documents', 'to' => 'documents_pending', 'from' => ['draft'], 'tone' => 'primary'],
+                    'submit_declaration' => ['label' => 'Submit declaration', 'to' => 'declaration_submitted', 'from' => ['draft', 'documents_pending'], 'tone' => 'primary'],
+                    'start_review' => ['label' => 'Start review', 'to' => 'under_review', 'from' => ['declaration_submitted'], 'tone' => 'primary'],
+                    'request_inspection' => ['label' => 'Request inspection', 'to' => 'inspection', 'from' => ['under_review'], 'tone' => 'warning'],
+                    'pass_inspection' => ['label' => 'Inspection passed', 'to' => 'duties_pending', 'from' => ['inspection'], 'tone' => 'success'],
+                    'assess_duties' => ['label' => 'Assess duties', 'to' => 'duties_pending', 'from' => ['under_review'], 'tone' => 'primary'],
+                    'request_payment' => ['label' => 'Request payment', 'to' => 'payment_pending', 'from' => ['duties_pending'], 'tone' => 'warning'],
+                    'clear' => ['label' => 'Mark cleared', 'to' => 'cleared', 'from' => ['payment_pending'], 'tone' => 'success'],
+                    'release' => ['label' => 'Mark released', 'to' => 'released', 'from' => ['cleared'], 'tone' => 'success'],
+                    'reject' => ['label' => 'Reject clearance', 'to' => 'rejected', 'from' => ['draft', 'documents_pending', 'declaration_submitted', 'under_review', 'inspection', 'duties_pending', 'payment_pending'], 'tone' => 'danger', 'reason' => true],
                 ],
                 'related' => [
-                    ['title' => 'Papers for this crossing', 'icon' => 'file-text', 'permission' => 'crossings',
-                     'sql' => 'SELECT document_type, document_no, issued_on, expires_on, is_received FROM border_documents WHERE crossing_id = :id ORDER BY is_received, id',
-                     'columns' => ['document_type' => 'Document', 'document_no' => 'Number', 'issued_on' => 'Issued', 'expires_on' => 'Expires', 'is_received' => 'In hand'],
-                     'empty' => 'No papers have been listed for this crossing yet.'],
+                    ['title' => 'Clearance documents', 'icon' => 'file-text', 'permission' => 'clearance_documents', 'module' => 'clearance_documents',
+                     'sql' => 'SELECT id, document_type, document_no, issued_on, expires_on, status FROM border_documents WHERE crossing_id = :id ORDER BY status, id',
+                     'columns' => ['document_type' => 'Document', 'document_no' => 'Number', 'issued_on' => 'Issued', 'expires_on' => 'Expires', 'status' => 'Status'], 'empty' => 'No clearance documents have been listed yet.'],
+                    ['title' => 'Inspections', 'icon' => 'search', 'permission' => 'clearance_inspections', 'module' => 'clearance_inspections',
+                     'sql' => 'SELECT id, inspection_type, scheduled_at, location, inspector, result FROM clearance_inspections WHERE crossing_id = :id ORDER BY scheduled_at DESC, id DESC',
+                     'columns' => ['inspection_type' => 'Inspection', 'scheduled_at' => 'Scheduled', 'location' => 'Location', 'inspector' => 'Inspector', 'result' => 'Result'], 'empty' => 'No inspection has been recorded.'],
+                    ['title' => 'Payments', 'icon' => 'credit-card', 'permission' => 'clearance_payments', 'module' => 'clearance_payments',
+                     'sql' => 'SELECT id, reference, amount, currency, payment_date, status FROM clearance_payments WHERE crossing_id = :id ORDER BY payment_date DESC, id DESC',
+                     'columns' => ['reference' => 'Reference', 'amount' => 'Amount', 'currency' => 'Currency', 'payment_date' => 'Date', 'status' => 'Status'], 'empty' => 'No clearance payment has been recorded.'],
+                    ['title' => 'Formal release', 'icon' => 'check-circle', 'permission' => 'clearance_releases', 'module' => 'clearance_releases',
+                     'sql' => 'SELECT id, release_number, release_date, remarks FROM clearance_releases WHERE crossing_id = :id',
+                     'columns' => ['release_number' => 'Release number', 'release_date' => 'Release date', 'remarks' => 'Remarks'], 'empty' => 'No formal release has been recorded.'],
                 ],
             ],
 
@@ -2019,6 +2123,28 @@ final class Schema
     private static function lookupLists(): array
     {
         return Lookup::lists();
+    }
+
+    /** The ordered customs declaration lifecycle shared by list filters and forms. */
+    private static function clearanceStatuses(): array
+    {
+        return [
+            'draft' => 'Draft',
+            'documents_pending' => 'Documents pending',
+            'declaration_submitted' => 'Declaration submitted',
+            'under_review' => 'Under review',
+            'inspection' => 'Inspection',
+            'duties_pending' => 'Duties pending',
+            'payment_pending' => 'Payment pending',
+            'cleared' => 'Cleared',
+            'released' => 'Released',
+            'rejected' => 'Rejected',
+        ];
+    }
+
+    private static function packDocumentTypes(): array
+    {
+        return array_combine($types = ['Commercial invoice', 'Packing list', 'Transport document', 'Certificate of origin', 'Customs declaration', 'Import/Export permit', 'Insurance', 'Other'], $types);
     }
 
     private static function statementSections(): array
