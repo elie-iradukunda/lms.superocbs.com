@@ -880,6 +880,41 @@ final class LogisticsData
             }
         }
 
+        if ($key === 'pre_dispatch_checks' && $value('status') === 'ready') {
+            foreach (['cargo_loaded', 'quantity_verified', 'packaging_verified', 'documents_verified', 'vehicle_verified', 'driver_verified', 'route_verified'] as $field) {
+                if (($input[$field] ?? '') === '' || ($input[$field] ?? '') === '0') {
+                    $errors[] = 'Every final pre-dispatch item must be confirmed before marking this shipment ready.';
+                    break;
+                }
+            }
+        }
+
+        if ($key === 'clearance_documents') {
+            if (!empty($columns['expires_on']) && strtotime((string) $columns['expires_on']) < strtotime(date('Y-m-d'))) {
+                $columns['status'] = 'expired';
+            }
+            $columns['is_received'] = ($columns['status'] ?? 'pending') === 'valid' ? 1 : 0;
+            if ($id === null && \current_user_id() !== null) {
+                $columns['uploaded_by'] = \current_user_id();
+            }
+        }
+
+        if ($key === 'shipment_documents') {
+            if (!empty($columns['expiry_date']) && strtotime((string) $columns['expiry_date']) < strtotime(date('Y-m-d'))) {
+                $columns['status'] = 'expired';
+            }
+            if ($id === null && \current_user_id() !== null) {
+                $columns['uploaded_by'] = \current_user_id();
+            }
+        }
+
+        if ($key === 'pre_dispatch_checks') {
+            if (($columns['status'] ?? '') === 'ready') {
+                $columns['checked_by'] = \current_user_id();
+                $columns['checked_at'] = date('Y-m-d H:i:s');
+            }
+        }
+
         if ($key === 'fuel' && !empty($columns['vehicle_id'])) {
             $columns['previous_mileage'] = self::lastOdometer((int) $columns['vehicle_id'], $id);
         }
