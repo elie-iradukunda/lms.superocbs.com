@@ -14,7 +14,6 @@ $tone = ['sent' => 'success', 'queued' => 'warning', 'failed' => 'danger', 'skip
     <div>
       <p class="lms-kicker">Administration</p>
       <h2 class="lms-page-title"><i class="fe fe-mail mr-2"></i>Email outbox</h2>
-      <p class="lms-page-sub">Every message the system meant to send, and what happened to it. A message is written here first and only then handed to the provider, so nothing is lost when mail is off.</p>
     </div>
     <?php if ($canSend): ?>
       <div class="lms-page-actions">
