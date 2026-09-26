@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace Controllers;
 
-use Core\Database;
 use Core\Flash;
 use Models\AuditLog;
 use Models\Permission;
+use Models\Role;
 
 /**
  * The permission matrix. The "Users and permissions" page used to be user CRUD
  * only: the role map lived in bootstrap.php and could not be changed at all.
+ * The fixed set of roles can be renamed here as well.
  */
 final class PermissionController
 {
@@ -19,7 +20,7 @@ final class PermissionController
     {
         \view('admin/permissions', [
             'title' => 'Role permissions',
-            'roles' => $this->roles(),
+            'roles' => Role::all(),
             'permissions' => Permission::catalogue(),
             'matrix' => $this->matrix(),
             'abilities' => Permission::ABILITIES,
@@ -29,26 +30,14 @@ final class PermissionController
 
     public function update(): void
     {
-        $roleId = (int) ($_POST['role_id'] ?? 0);
-        $roles = $this->roles();
-        $role = null;
-        foreach ($roles as $candidate) {
-            if ((int) $candidate['id'] === $roleId) {
-                $role = $candidate;
-                break;
-            }
-        }
+        $role = Role::find((int) ($_POST['role_id'] ?? 0));
 
         if ($role === null) {
-            Flash::error('That role does not exist.');
-            header('Location: ' . \url('permissions'));
-            exit;
+            $this->back('That role does not exist.');
         }
 
         if ($role['role_key'] === 'super_admin') {
-            Flash::error('Super Admin keeps full access and cannot be restricted. Change another role instead.');
-            header('Location: ' . \url('permissions'));
-            exit;
+            $this->back('Super Admin keeps full access and cannot be restricted. Change another role instead.');
         }
 
         $grants = [];
@@ -59,7 +48,10 @@ final class PermissionController
             if (!in_array((string) $permissionKey, $allowed, true) || !is_array($abilities)) {
                 continue;
             }
-            $clean = array_values(array_intersect(array_map('strval', array_keys($abilities)), Permission::ABILITIES));
+            $clean = array_values(array_intersect(
+                array_map('strval', array_keys($abilities)),
+                Permission::applicable((string) $permissionKey)
+            ));
             // A right without view is meaningless, so grant view alongside it.
             if ($clean !== [] && !in_array('view', $clean, true)) {
                 $clean[] = 'view';
@@ -70,35 +62,54 @@ final class PermissionController
         }
 
         try {
-            Permission::sync($roleId, $grants);
+            Permission::sync((int) $role['id'], $grants);
         } catch (\Throwable $exception) {
-            Flash::error('The permissions could not be saved: ' . $exception->getMessage());
-            header('Location: ' . \url('permissions'));
-            exit;
+            $this->back('The permissions could not be saved: ' . $exception->getMessage(), $role['role_key']);
         }
 
         AuditLog::record('permissions.updated', 'users', $role['role_key'], null, ['permissions' => count($grants)]);
         Flash::success(sprintf('Permissions for %s were saved.', $role['role_name']));
-
-        header('Location: ' . \url('permissions', ['role' => $role['role_key']]));
-        exit;
+        $this->to($role['role_key']);
     }
 
-    private function roles(): array
+    public function renameRole(array $params): void
     {
-        return Database::connection()
-            ->query('SELECT id, role_key, role_name FROM roles ORDER BY id')
-            ->fetchAll();
+        $role = Role::find((int) ($params['id'] ?? 0));
+        if ($role === null) {
+            $this->back('That role does not exist.');
+        }
+
+        $name = trim((string) ($_POST['role_name'] ?? ''));
+        if (($problem = Role::nameProblem($name, (int) $role['id'])) !== null) {
+            $this->back($problem, $role['role_key']);
+        }
+
+        Role::rename((int) $role['id'], $name);
+        AuditLog::record('roles.renamed', 'users', $role['role_key'], null, ['from' => $role['role_name'], 'to' => $name]);
+        Flash::success(sprintf('%s is now called %s.', $role['role_name'], $name));
+        $this->to($role['role_key']);
     }
 
     /** role_key => permission_key => ability => bool */
     private function matrix(): array
     {
         $matrix = [];
-        foreach ($this->roles() as $role) {
+        foreach (Role::all() as $role) {
             $matrix[$role['role_key']] = Permission::forRole((string) $role['role_key']);
         }
 
         return $matrix;
+    }
+
+    private function back(string $message, ?string $roleKey = null): never
+    {
+        Flash::error($message);
+        $this->to($roleKey);
+    }
+
+    private function to(?string $roleKey): never
+    {
+        header('Location: ' . ($roleKey === null ? \url('permissions') : \url('permissions', ['role' => $roleKey])));
+        exit;
     }
 }
