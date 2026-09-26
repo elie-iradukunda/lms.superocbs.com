@@ -4,7 +4,6 @@
     <div>
       <p class="lms-kicker">Accounting</p>
       <h2 class="lms-page-title"><i class="fe fe-book mr-2"></i>Accounting books</h2>
-      <p class="lms-page-sub">The statements the business is kept by. Every figure is derived from the journal, so nothing here is typed in twice.</p>
     </div>
     <div class="lms-page-actions">
       <?php if (can_view('journal')): ?>
