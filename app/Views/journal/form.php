@@ -3,17 +3,11 @@
 
   <div class="lms-page-head">
     <div>
-      <nav aria-label="breadcrumb">
-        <ol class="breadcrumb lms-crumbs">
-          <li class="breadcrumb-item"><a href="<?= url('journal') ?>">Journal</a></li>
-          <li class="breadcrumb-item active">New entry</li>
-        </ol>
-      </nav>
       <h2 class="lms-page-title"><i class="fe fe-book-open mr-2"></i>New journal entry</h2>
-      <p class="lms-page-sub">For the corrections, accruals and adjustments no operational document produces. Everything else posts itself.</p>
     </div>
     <div class="lms-page-actions">
       <a class="btn btn-outline-secondary" href="<?= url('journal') ?>">Cancel</a>
+      <button class="btn btn-primary" type="submit" form="lms-journal-form"><i class="fe fe-save fe-12 mr-1"></i>Post entry</button>
     </div>
   </div>
 
@@ -24,7 +18,7 @@
     </div>
   <?php endif; ?>
 
-  <form method="post" action="<?= url('journal') ?>" class="lms-form lms-journal-form">
+  <form id="lms-journal-form" method="post" action="<?= url('journal') ?>" class="lms-form lms-journal-form">
     <?= csrf_field() ?>
 
     <section class="card shadow-sm lms-section">
@@ -105,13 +99,7 @@
       </div>
     </section>
 
-    <div class="lms-form-bar">
-      <span class="small text-muted">An entry that does not balance is refused, on the page and again in the ledger.</span>
-      <div>
-        <a class="btn btn-light" href="<?= url('journal') ?>">Cancel</a>
-        <button class="btn btn-primary" type="submit"><i class="fe fe-save fe-12 mr-1"></i>Post entry</button>
-      </div>
-    </div>
+    <p class="small text-muted mt-n2">An entry that does not balance is refused, on the page and again in the ledger.</p>
   </form>
 </div>
 
