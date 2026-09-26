@@ -12,6 +12,7 @@ $router->get('/me', [ApiController::class, 'me']);
 
 $router->get('/my/trips', [ApiController::class, 'myTrips'], ['permission' => 'trips']);
 $router->get('/my/deliveries', [ApiController::class, 'myDeliveries'], ['permission' => 'deliveries']);
+$router->get('/my/shipments/{id}/document-pack', [ApiController::class, 'documentPack'], ['permission' => 'shipments']);
 $router->post('/deliveries/{id}/{action}', [ApiController::class, 'deliveryAction'], ['permission' => 'deliveries', 'ability' => 'edit']);
 
 $router->get('/modules/{module}', [ApiController::class, 'listing']);
