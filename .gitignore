@@ -6,3 +6,6 @@
 
 # Uploaded proof of delivery, signatures, receipts and scanned documents.
 storage/uploads/
+
+# Full production settings, secrets included.
+.env.production
