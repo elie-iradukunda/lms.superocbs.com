@@ -86,6 +86,47 @@ final class Permission
         }
     }
 
+    /**
+     * Pages that are not a generic module, and the abilities their code
+     * actually checks. `currency_rates` is empty: nothing reads it since rates
+     * moved onto the currencies themselves.
+     */
+    private const PAGE_ABILITIES = [
+        'dashboard' => ['view'],
+        'audit' => ['view'],
+        'books' => ['view'],
+        'settings' => ['view', 'edit'],
+        'email' => ['view', 'edit'],
+        'journal' => ['view', 'create', 'edit', 'approve'],
+        'currency_rates' => [],
+    ];
+
+    /**
+     * The abilities that mean something for one permission, so the matrix does
+     * not offer a tick box that changes nothing. A generic module can be
+     * listed, created, edited and deleted; it can be approved only when it has
+     * workflow buttons (approve an expense, issue an invoice). Anything not
+     * recognised keeps every ability rather than risk hiding a real one.
+     *
+     * @return list<string>
+     */
+    public static function applicable(string $permissionKey): array
+    {
+        if (array_key_exists($permissionKey, self::PAGE_ABILITIES)) {
+            return self::PAGE_ABILITIES[$permissionKey];
+        }
+
+        try {
+            $module = Schema::get($permissionKey);
+        } catch (\InvalidArgumentException) {
+            return self::ABILITIES;
+        }
+
+        return empty($module['actions'])
+            ? ['view', 'create', 'edit', 'delete']
+            : self::ABILITIES;
+    }
+
     /** Replaces the whole matrix for one role. `$grants` is permission key => list of abilities. */
     public static function sync(int $roleId, array $grants): void
     {
