@@ -4,11 +4,11 @@
     <div>
       <p class="lms-kicker">Account</p>
       <h2 class="lms-page-title"><i class="fe fe-key mr-2"></i>Change password</h2>
-      <p class="lms-page-sub">Set a password only you know. Seeded accounts all start with the same one.</p>
     </div>
-    <?php if (!$forced): ?>
-      <div class="lms-page-actions"><a class="btn btn-outline-secondary" href="<?= url('account') ?>">Back to profile</a></div>
-    <?php endif; ?>
+    <div class="lms-page-actions">
+      <?php if (!$forced): ?><a class="btn btn-outline-secondary" href="<?= url('account') ?>">Back to profile</a><?php endif; ?>
+      <button class="btn btn-primary" type="submit" form="lms-password-form"><i class="fe fe-save fe-12 mr-1"></i>Change password</button>
+    </div>
   </div>
 
   <?php if ($forced): ?>
@@ -24,7 +24,7 @@
 
   <div class="row">
     <div class="col-xl-7">
-      <form method="post" action="<?= url(['account', 'password']) ?>" class="lms-form">
+      <form id="lms-password-form" method="post" action="<?= url(['account', 'password']) ?>" class="lms-form">
         <?= csrf_field() ?>
         <section class="card shadow-sm lms-section">
           <header class="lms-section-head">
@@ -49,10 +49,7 @@
           </div>
         </section>
 
-        <div class="lms-form-bar">
-          <span class="small text-muted"><span class="lms-required">*</span> marks a required field</span>
-          <button class="btn btn-primary" type="submit"><i class="fe fe-save fe-12 mr-1"></i>Change password</button>
-        </div>
+        <p class="small text-muted mt-n2"><span class="lms-required">*</span> marks a required field</p>
       </form>
     </div>
 
