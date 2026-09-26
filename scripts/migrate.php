@@ -123,6 +123,7 @@ if ($withDemo) {
         __DIR__ . '/../database/seed_extended.sql',
         __DIR__ . '/../database/seed_accounting_demo.sql',
         __DIR__ . '/../database/seed_demo.sql',
+        __DIR__ . '/../database/seed_kenya_clearance_demo.sql',
     );
 }
 
