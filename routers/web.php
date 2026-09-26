@@ -73,6 +73,7 @@ $router->get('/settings', [SettingsController::class, 'index'], ['permission' =>
 $router->post('/settings', [SettingsController::class, 'update'], ['permission' => 'settings', 'ability' => 'edit']);
 $router->get('/permissions', [PermissionController::class, 'index'], ['permission' => 'users']);
 $router->post('/permissions', [PermissionController::class, 'update'], ['permission' => 'users', 'ability' => 'edit']);
+$router->post('/permissions/roles/{id}/rename', [PermissionController::class, 'renameRole'], ['permission' => 'users', 'ability' => 'edit']);
 $router->get('/email', [MailController::class, 'index'], ['permission' => 'email']);
 $router->post('/email/test', [MailController::class, 'test'], ['permission' => 'email', 'ability' => 'edit']);
 $router->post('/email/flush', [MailController::class, 'flush'], ['permission' => 'email', 'ability' => 'edit']);
