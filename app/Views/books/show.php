@@ -16,14 +16,7 @@ $currencies = $book['currencies'];
 
   <div class="lms-page-head fl-no-print">
     <div>
-      <nav aria-label="breadcrumb">
-        <ol class="breadcrumb lms-crumbs">
-          <li class="breadcrumb-item"><a href="<?= url('books') ?>">Accounting books</a></li>
-          <li class="breadcrumb-item active"><?= e($book['label']) ?></li>
-        </ol>
-      </nav>
       <h2 class="lms-page-title"><i class="fe fe-<?= e($spec['icon']) ?> mr-2"></i><?= e($book['label']) ?></h2>
-      <p class="lms-page-sub"><?= e($spec['description']) ?></p>
     </div>
     <div class="lms-page-actions">
       <a class="btn btn-outline-danger" href="<?= e(url(['books', 'export', $book['key'], 'pdf'], $exportQuery)) ?>"><i class="fe fe-file-text fe-12 mr-1"></i>PDF</a>
