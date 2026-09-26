@@ -407,6 +407,18 @@ final class LogisticsController
             }
         }
 
+        if (in_array($key, ['clearance_documents', 'clearance_inspections', 'clearance_payments', 'clearance_releases'], true) && ($_GET['crossing_id'] ?? '') !== '') {
+            $clearance = LogisticsData::find('crossings', (int) $_GET['crossing_id'], current_context());
+            if ($clearance !== null) {
+                return match ($key) {
+                    'clearance_documents' => ['crossing_id' => $clearance['id'], 'status' => 'pending'],
+                    'clearance_inspections' => ['crossing_id' => $clearance['id'], 'result' => 'pending'],
+                    'clearance_payments' => ['crossing_id' => $clearance['id'], 'currency' => $clearance['currency'], 'status' => 'pending', 'payment_date' => $today],
+                    'clearance_releases' => ['crossing_id' => $clearance['id'], 'release_date' => $today, 'released_by' => current_user_id()],
+                };
+            }
+        }
+
         $defaults = match ($key) {
             'vehicles' => ['status' => 'available', 'fuel_type' => 'diesel', 'ownership' => 'owned', 'mileage' => 0],
             'drivers' => ['status' => 'available'],
@@ -415,6 +427,11 @@ final class LogisticsController
             'requests' => ['status' => 'pending', 'priority' => 'normal', 'required_date' => $today, 'requester_id' => \current_user_id()],
             'trips' => ['status' => 'requested', 'trip_type' => 'delivery'],
             'shipments' => ['status' => 'draft', 'cargo_type' => 'general', 'packages_count' => 1],
+            'crossings' => ['status' => 'draft', 'direction' => 'import', 'currency' => 'RWF'],
+            'clearance_documents' => ['status' => 'pending'],
+            'clearance_inspections' => ['result' => 'pending'],
+            'clearance_payments' => ['status' => 'pending', 'currency' => 'RWF', 'payment_date' => $today],
+            'clearance_releases' => ['release_date' => $today, 'released_by' => current_user_id()],
             'deliveries' => ['status' => 'loading', 'attempt_number' => 1, 'failure_reason' => 'none'],
             'customers' => ['status' => 'active', 'customer_type' => 'corporate', 'payment_terms_days' => \Models\Settings::int('payment_terms_days', 30)],
             'rates' => ['status' => 'active', 'rate_type' => 'per_kg', 'rate_amount' => 0, 'effective_from' => $today],
