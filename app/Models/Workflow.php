@@ -57,11 +57,16 @@ final class Workflow
             'reject' => ['from' => ['draft', 'issued'], 'to' => 'cancelled', 'needs_reason' => true],
         ],
         'crossings' => [
-            'arrive' => ['from' => ['expected'], 'to' => 'at_border'],
-            'lodge' => ['from' => ['at_border', 'held'], 'to' => 'lodged'],
-            'hold' => ['from' => ['at_border', 'lodged'], 'to' => 'held', 'needs_reason' => true],
-            'clear' => ['from' => ['lodged', 'held'], 'to' => 'cleared'],
-            'depart' => ['from' => ['cleared'], 'to' => 'departed'],
+            'prepare_documents' => ['from' => ['draft'], 'to' => 'documents_pending'],
+            'submit_declaration' => ['from' => ['draft', 'documents_pending'], 'to' => 'declaration_submitted'],
+            'start_review' => ['from' => ['declaration_submitted'], 'to' => 'under_review'],
+            'request_inspection' => ['from' => ['under_review'], 'to' => 'inspection'],
+            'pass_inspection' => ['from' => ['inspection'], 'to' => 'duties_pending'],
+            'assess_duties' => ['from' => ['under_review'], 'to' => 'duties_pending'],
+            'request_payment' => ['from' => ['duties_pending'], 'to' => 'payment_pending'],
+            'clear' => ['from' => ['payment_pending'], 'to' => 'cleared'],
+            'release' => ['from' => ['cleared'], 'to' => 'released'],
+            'reject' => ['from' => ['draft', 'documents_pending', 'declaration_submitted', 'under_review', 'inspection', 'duties_pending', 'payment_pending'], 'to' => 'rejected', 'needs_reason' => true],
         ],
         'cheques' => [
             'issue' => ['from' => ['draft'], 'to' => 'issued'],
@@ -270,6 +275,11 @@ final class Workflow
             return $shortage;
         }
 
+        $documentGate = DocumentPack::dispatchGuard((int) $trip['id']);
+        if ($documentGate !== null) {
+            return $documentGate;
+        }
+
         $capacity = $vehicle['capacity_kg'] !== null ? (float) $vehicle['capacity_kg'] : null;
         if ($capacity !== null && $capacity > 0 && (float) $totals['weight'] > $capacity) {
             return sprintf(
@@ -371,7 +381,7 @@ final class Workflow
         $db->prepare('UPDATE trips SET dispatched_at = NOW(), departure_at = COALESCE(departure_at, NOW()) WHERE id = ?')->execute([$id]);
         $db->prepare("UPDATE vehicles SET status = 'on_trip' WHERE id = ?")->execute([(int) $trip['vehicle_id']]);
         $db->prepare("UPDATE drivers SET status = 'on_trip' WHERE id = ?")->execute([(int) $trip['driver_id']]);
-        $db->prepare("UPDATE shipments SET status = 'in_transit' WHERE trip_id = ? AND deleted_at IS NULL AND status IN ('draft','booked','loaded')")->execute([$id]);
+        $db->prepare("UPDATE shipments SET status = 'in_transit' WHERE trip_id = ? AND deleted_at IS NULL AND status IN ('draft','booked','loaded','released')")->execute([$id]);
         $db->prepare("UPDATE deliveries SET status = 'in_transit' WHERE trip_id = ? AND deleted_at IS NULL AND status = 'loading'")->execute([$id]);
 
         if (!empty($trip['request_id'])) {
