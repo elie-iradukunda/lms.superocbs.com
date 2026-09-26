@@ -16,12 +16,6 @@ $sourceRoute = $sourceRoutes[(string) $entry['source_type']] ?? null;
 
   <div class="lms-page-head">
     <div>
-      <nav aria-label="breadcrumb">
-        <ol class="breadcrumb lms-crumbs">
-          <li class="breadcrumb-item"><a href="<?= url('journal') ?>">Journal</a></li>
-          <li class="breadcrumb-item active"><?= e($entry['entry_no']) ?></li>
-        </ol>
-      </nav>
       <h2 class="lms-page-title">
         <i class="fe fe-book-open mr-2"></i><?= e($entry['entry_no']) ?>
         <span class="badge badge-<?= $entry['status'] === 'reversed' ? 'danger' : 'success' ?> lms-status-badge"><?= e(ucfirst((string) $entry['status'])) ?></span>
