@@ -12,7 +12,6 @@ $sources = [
     <div>
       <p class="lms-kicker">Accounting</p>
       <h2 class="lms-page-title"><i class="fe fe-book-open mr-2"></i>Journal</h2>
-      <p class="lms-page-sub">Every entry the ledger holds, in date order. Most are posted by the system when a document is issued, approved or completed.</p>
     </div>
     <div class="lms-page-actions">
       <a class="btn btn-outline-secondary" href="<?= url('books') ?>"><i class="fe fe-book fe-12 mr-1"></i>Books</a>
