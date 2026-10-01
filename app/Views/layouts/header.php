@@ -151,7 +151,7 @@ $searchIndex[] = ['label' => 'My profile', 'url' => url('account'), 'group' => '
             </a>
             <ul class="collapse<?= nav_group($group['routes']) ? ' show' : '' ?> list-unstyled pl-4 w-100" id="<?= e($group['id']) ?>">
               <?php foreach ($group['items'] as [$route, $label]): ?>
-                <li class="nav-item"><a class="nav-link pl-3<?= nav_active($route) ?>" href="<?= url($route) ?>"><span class="ml-1 item-text"><?= e($label) ?></span></a></li>
+                <li class="nav-item"><a class="nav-link pl-3<?= nav_active($route) ?>" href="<?= url($route) ?>" title="<?= e($label) ?>"><span class="ml-1 item-text"><?= e($label) ?></span></a></li>
               <?php endforeach; ?>
             </ul>
           </li>
@@ -163,7 +163,7 @@ $searchIndex[] = ['label' => 'My profile', 'url' => url('account'), 'group' => '
             <ul class="collapse<?= nav_group(['reports']) ? ' show' : '' ?> list-unstyled pl-4 w-100 logistics-report-menu" id="reportsMenu">
               <li class="nav-item"><a class="nav-link pl-3<?= nav_active('reports', '') ?>" href="<?= url('reports') ?>"><span class="ml-1 item-text">All reports</span></a></li>
               <?php foreach (\Models\ReportData::availableFor(current_role()) as $reportKey => $reportLabel): ?>
-                <li class="nav-item"><a class="nav-link pl-3<?= (current_route() === 'reports' && (($_GET['key'] ?? '') === $reportKey || str_ends_with($_SERVER['REQUEST_URI'] ?? '', '/' . $reportKey))) ? ' active' : '' ?>" href="<?= url(['reports', 'view', $reportKey]) ?>"><span class="ml-1 item-text"><?= e($reportLabel) ?></span></a></li>
+                <li class="nav-item"><a class="nav-link pl-3<?= (current_route() === 'reports' && (($_GET['key'] ?? '') === $reportKey || str_ends_with($_SERVER['REQUEST_URI'] ?? '', '/' . $reportKey))) ? ' active' : '' ?>" href="<?= url(['reports', 'view', $reportKey]) ?>" title="<?= e($reportLabel) ?>"><span class="ml-1 item-text"><?= e($reportLabel) ?></span></a></li>
               <?php endforeach; ?>
               <?php if (can_view('report_emails')): ?>
                 <li class="nav-item"><a class="nav-link pl-3<?= nav_active('report_emails', '') ?>" href="<?= url('report_emails') ?>"><span class="ml-1 item-text"><i class="fe fe-mail fe-12 mr-1"></i>Report emails</span></a></li>

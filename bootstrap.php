@@ -354,13 +354,15 @@ function navigation(): array
             ['vehicles', 'Vehicles'], ['drivers', 'Drivers'], ['maintenance', 'Maintenance'], ['vehicle_documents', 'Vehicle documents'],
         ]],
         ['label' => 'Transport', 'icon' => 'map-pin', 'id' => 'transportMenu', 'items' => [
-            ['requests', 'Transport requests'], ['trips', 'Trips'], ['shipments', 'Shipments'], ['shipment_documents', 'Shipment documents'], ['pre_dispatch_checks', 'Pre-dispatch checks'], ['deliveries', 'Deliveries'], ['crossings', 'Customs clearance'], ['clearance_documents', 'Clearance documents'], ['clearance_inspections', 'Inspections'], ['clearance_payments', 'Clearance payments'], ['clearance_releases', 'Releases'], ['border_posts', 'Border posts'],
+            // Short labels: the sidebar is narrow, and a name that wraps onto two
+            // lines is hard to scan. The page itself still carries the full title.
+            ['requests', 'Transport requests'], ['trips', 'Trips'], ['shipments', 'Shipments'], ['shipment_documents', 'Shipment papers'], ['pre_dispatch_checks', 'Dispatch checks'], ['deliveries', 'Deliveries'], ['crossings', 'Customs clearance'], ['clearance_documents', 'Customs documents'], ['clearance_inspections', 'Inspections'], ['clearance_payments', 'Customs payments'], ['clearance_releases', 'Customs releases'], ['border_posts', 'Border posts'],
         ]],
         ['label' => 'Commercial', 'icon' => 'briefcase', 'id' => 'commercialMenu', 'items' => [
             ['customers', 'Customers'], ['rates', 'Rate cards'], ['invoices', 'Invoices'], ['payments', 'Payments received'],
         ]],
         ['label' => 'Finance', 'icon' => 'credit-card', 'id' => 'financeMenu', 'items' => [
-            ['fuel', 'Fuel management'], ['expenses', 'Logistics expenses'],
+            ['fuel', 'Fuel management'], ['expenses', 'Trip expenses'],
         ]],
         ['label' => 'Warehouse', 'icon' => 'package', 'id' => 'warehouseMenu', 'items' => [
             ['warehouses', 'Warehouses'], ['warehouse', 'Inventory'], ['movements', 'Stock movements'], ['procurement', 'Procurement'], ['suppliers', 'Suppliers'],
