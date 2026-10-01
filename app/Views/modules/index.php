@@ -67,6 +67,11 @@ $cell = static function (mixed $value, array $spec): string {
     </div>
     <div class="lms-page-actions">
       <a class="btn btn-outline-secondary" href="<?= e(url([$moduleKey, 'export', 'csv'], $query)) ?>"><i class="fe fe-download fe-12 mr-1"></i>Export CSV</a>
+      <?php foreach ($module['list_links'] ?? [] as $listLink): ?>
+        <?php if (role_can($listLink['permission'] ?? $moduleKey, $listLink['ability'] ?? 'view')): ?>
+          <a class="btn btn-outline-primary" href="<?= url($listLink['route']) ?>"><i class="fe fe-<?= e($listLink['icon'] ?? 'link') ?> fe-12 mr-1"></i><?= e($listLink['label']) ?></a>
+        <?php endif; ?>
+      <?php endforeach; ?>
       <?php if (can_create($moduleKey)): ?>
         <a class="btn btn-primary" href="<?= url([$moduleKey, 'create']) ?>"><i class="fe fe-plus fe-12 mr-1"></i><?= e($module['button']) ?></a>
       <?php endif; ?>

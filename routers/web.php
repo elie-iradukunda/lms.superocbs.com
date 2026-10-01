@@ -8,6 +8,8 @@ use Controllers\BooksController;
 use Controllers\DashboardController;
 use Controllers\FileController;
 use Controllers\HomeController;
+use Controllers\ImportController;
+use Controllers\OperationsController;
 use Controllers\JournalController;
 use Controllers\LogisticsController;
 use Controllers\MailController;
@@ -83,6 +85,18 @@ $router->post('/email/{id}/retry', [MailController::class, 'retry'], ['permissio
 $router->get('/audit', [AuditController::class, 'index'], ['permission' => 'audit']);
 $router->get('/audit/export', [AuditController::class, 'export'], ['permission' => 'audit']);
 
+// ------------------------------------------------- documents from a job
+// Registered before the generic module routes so "/deliveries/5/note" is never
+// read as anything else.
+$router->get('/deliveries/{id}/note', [OperationsController::class, 'deliveryNote'], ['permission' => 'deliveries']);
+$router->post('/trips/{id}/invoice', [OperationsController::class, 'invoiceTrip'], ['permission' => 'invoices', 'ability' => 'create']);
+$router->post('/report_emails/{id}/send', [OperationsController::class, 'sendReport'], ['permission' => 'report_emails', 'ability' => 'edit']);
+
+// ------------------------------------------------------- data imports
+$router->get('/accounts/import', [ImportController::class, 'accountsForm'], ['permission' => 'accounts', 'ability' => 'create']);
+$router->get('/accounts/import/template', [ImportController::class, 'accountsTemplate'], ['permission' => 'accounts', 'ability' => 'create']);
+$router->post('/accounts/import', [ImportController::class, 'accountsImport'], ['permission' => 'accounts', 'ability' => 'create']);
+
 // --------------------------------------------------------- generic modules
 // Every module below is driven by Models\Schema: one controller, one set of
 // routes, and a permission check per ability.
@@ -95,6 +109,7 @@ $modules = [
     'fuel', 'expenses',
     'warehouses', 'warehouse', 'movements', 'procurement', 'suppliers',
     'users', 'accounts', 'payment_methods', 'cheques', 'cheque_books', 'budgets', 'currencies', 'lookups',
+    'report_emails',
 ];
 
 foreach ($modules as $module) {

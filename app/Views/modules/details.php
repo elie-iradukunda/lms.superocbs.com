@@ -179,9 +179,21 @@ if (!empty($record['rejection_reason'])) {
             <?php foreach ($links as $link): ?>
               <?php $query = []; ?>
               <?php foreach ($link['carry'] ?? [] as $param => $column) { $query[$param] = $record[$column] ?? null; } ?>
-              <a class="btn btn-<?= e($link['tone'] ?? 'secondary') ?>" href="<?= url($link['route'], $query) ?>" title="<?= e($link['hint'] ?? '') ?>">
+              <?php // ':id' in a route stands for this record, for pages that belong to it (a delivery note). ?>
+              <?php $route = is_array($link['route']) ? array_map(static fn ($part) => $part === ':id' ? (string) $record['id'] : $part, $link['route']) : $link['route']; ?>
+              <?php if (($link['method'] ?? 'get') === 'post'): ?>
+                <?php // A link that creates something (an invoice from a trip) must be a POST with its token. ?>
+                <form method="post" action="<?= url($route, $query) ?>" class="d-inline">
+                  <?= csrf_field() ?>
+                  <button type="submit" class="btn btn-<?= e($link['tone'] ?? 'secondary') ?>" title="<?= e($link['hint'] ?? '') ?>">
+                    <?php if (!empty($link['icon'])): ?><i class="fe fe-<?= e($link['icon']) ?> fe-12 mr-1"></i><?php endif; ?><?= e($link['label']) ?>
+                  </button>
+                </form>
+              <?php else: ?>
+              <a class="btn btn-<?= e($link['tone'] ?? 'secondary') ?>" href="<?= url($route, $query) ?>" title="<?= e($link['hint'] ?? '') ?>"<?= !empty($link['new_tab']) ? ' target="_blank" rel="noopener"' : '' ?>>
                 <?php if (!empty($link['icon'])): ?><i class="fe fe-<?= e($link['icon']) ?> fe-12 mr-1"></i><?php endif; ?><?= e($link['label']) ?>
               </a>
+              <?php endif; ?>
             <?php endforeach; ?>
 
             <?php if (!can_approve($moduleKey)) { $actions = []; } ?>

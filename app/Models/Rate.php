@@ -255,6 +255,24 @@ final class Rate
             'UPDATE shipments SET rate_card_id = ?, quoted_amount = ?, quote_basis = ? WHERE id = ?'
         );
 
+        if ($quote === null && !empty($shipment['request_id'])) {
+            // No card fits the load as booked, but the customer already accepted
+            // a price on the request it came from. When this is the only load on
+            // that request, that accepted price is the price.
+            $request = Database::connection()->prepare(
+                "SELECT r.reference_code, r.quoted_amount, r.rate_card_id,
+                        (SELECT COUNT(*) FROM shipments x WHERE x.request_id = r.id AND x.deleted_at IS NULL AND x.status <> 'cancelled') AS loads
+                   FROM transport_requests r WHERE r.id = ? AND r.deleted_at IS NULL"
+            );
+            $request->execute([(int) $shipment['request_id']]);
+            $accepted = $request->fetch(PDO::FETCH_ASSOC);
+            if ($accepted !== false && (float) $accepted['quoted_amount'] > 0 && (int) $accepted['loads'] === 1) {
+                $update->execute([$accepted['rate_card_id'] !== null ? (int) $accepted['rate_card_id'] : null, (float) $accepted['quoted_amount'],
+                    mb_substr('As quoted and accepted on ' . $accepted['reference_code'], 0, 160), $shipmentId]);
+                return;
+            }
+        }
+
         if ($quote === null) {
             // Said plainly rather than left blank: a blank price looks like a
             // free load, and somebody has to agree a figure.

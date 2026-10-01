@@ -57,7 +57,11 @@ try {
     ]);
 
     $test->assert(Models\Workflow::apply('crossings', $clearanceId, 'release')['ok'], 'a clearance with a formal release can release');
-    $test->same('released', (string) $pdo->query("SELECT status FROM shipments WHERE id = {$shipmentId}")->fetchColumn(), 'release updates the linked shipment');
+    // Released at a border while its truck is still on the road, the load is in
+    // transit again; with no running trip it simply reads Released.
+    $tripRunning = (string) $pdo->query("SELECT t.status FROM shipments s LEFT JOIN trips t ON t.id = s.trip_id WHERE s.id = {$shipmentId}")->fetchColumn() === 'in_transit';
+    $test->same($tripRunning ? 'in_transit' : 'released', (string) $pdo->query("SELECT status FROM shipments WHERE id = {$shipmentId}")->fetchColumn(), 'release updates the linked shipment');
+    $test->same('released', (string) $pdo->query("SELECT status FROM border_crossings WHERE id = {$clearanceId}")->fetchColumn(), 'the clearance itself reads Released');
 
     $test->finish();
 } finally {

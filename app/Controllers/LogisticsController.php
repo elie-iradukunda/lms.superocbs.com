@@ -347,6 +347,9 @@ final class LogisticsController
                     'weight_kg' => $request['weight_kg'],
                     'packages_count' => $request['packages_count'] ?: 1,
                     'currency' => $request['currency'],
+                    // The customer's order number follows the cargo onto the
+                    // delivery note and the invoice.
+                    'customer_reference' => $request['lpo_number'] ?? null,
                     // An order against our own stock carries the item with it,
                     // so the depot loses the right thing when the truck leaves.
                     'stock_item_id' => $request['stock_item_id'],
@@ -448,8 +451,19 @@ final class LogisticsController
             // Nobody adds a choice to a list in order to withhold it.
             'lookups' => ['is_active' => 1],
             'warehouses' => ['status' => 'active'],
+            'report_emails' => ['is_active' => 1, 'frequency' => 'weekly'],
             default => [],
         };
+
+        // "Record expense" / "Record fuel" from a trip: the trip and its truck are
+        // already known, so the driver only types what is on the receipt.
+        if (in_array($key, ['expenses', 'fuel'], true) && isset($_GET['trip_id'])) {
+            $trip = LogisticsData::find('trips', (int) $_GET['trip_id'], \current_context());
+            if ($trip !== null) {
+                $defaults['trip_id'] = $trip['id'];
+                $defaults['vehicle_id'] = $trip['vehicle_id'] ?? null;
+            }
+        }
 
         return $defaults;
     }

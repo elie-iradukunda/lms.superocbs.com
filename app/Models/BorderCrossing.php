@@ -173,6 +173,14 @@ final class BorderCrossing
         $db->prepare('UPDATE border_crossings SET released_at = COALESCE(released_at, NOW()), departed_at = COALESCE(departed_at, NOW()), hold_reason = NULL WHERE id = ?')->execute([$id]);
         if (!empty($crossing['shipment_id'])) {
             $db->prepare("UPDATE shipments SET status = 'released' WHERE id = ? AND deleted_at IS NULL AND status NOT IN ('delivered', 'returned', 'cancelled')")->execute([(int) $crossing['shipment_id']]);
+            // Released at a border half way along: the truck drives on, so the load
+            // is on the road again, not parked at the post. Without this it stayed
+            // "Released" and completing the trip never marked it delivered.
+            $db->prepare(
+                "UPDATE shipments s INNER JOIN trips t ON t.id = s.trip_id
+                    SET s.status = 'in_transit'
+                  WHERE s.id = ? AND s.status = 'released' AND t.status = 'in_transit'"
+            )->execute([(int) $crossing['shipment_id']]);
         }
 
         $total = self::hoursBetween((string) $crossing['arrived_at'], date('Y-m-d H:i:s'));

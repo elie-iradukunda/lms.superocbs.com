@@ -41,7 +41,7 @@ final class FileController
             $this->fail(404, 'File not found.');
         }
 
-        if (!\role_can($permission, 'view')) {
+        if (!\role_can($permission, 'view') && !$this->driverOwns($module, $name)) {
             $this->fail(403, 'This file is not available for your role.');
         }
 
@@ -96,6 +96,46 @@ final class FileController
         header('Cache-Control: private, max-age=86400');
         readfile($path);
         exit;
+    }
+
+    /**
+     * A driver carries the papers for his own load: the shipment documents, the
+     * customs documents of the crossings on his trip, his truck's insurance and
+     * inspection, and his own licence. He may open those, and only those, even
+     * though his role cannot browse the document lists of the whole company.
+     */
+    private function driverOwns(string $module, string $name): bool
+    {
+        $driverId = \current_role() === 'driver' ? \current_driver_id() : null;
+        if ($driverId === null) {
+            return false;
+        }
+
+        $sql = match ($module) {
+            'shipment_documents' => 'SELECT 1 FROM shipment_documents d
+                                       INNER JOIN shipments s ON s.id = d.shipment_id
+                                       INNER JOIN trips t ON t.id = s.trip_id
+                                      WHERE d.document_file LIKE ? AND t.driver_id = ?',
+            'clearance_documents' => 'SELECT 1 FROM border_documents d
+                                        INNER JOIN border_crossings c ON c.id = d.crossing_id
+                                        LEFT JOIN shipments s ON s.id = c.shipment_id
+                                        INNER JOIN trips t ON t.id = COALESCE(c.trip_id, s.trip_id)
+                                       WHERE d.document_file LIKE ? AND t.driver_id = ?',
+            'vehicle_documents' => 'SELECT 1 FROM vehicle_documents d
+                                      WHERE d.document_file LIKE ? AND d.deleted_at IS NULL
+                                        AND d.vehicle_id IN (SELECT vehicle_id FROM trips WHERE driver_id = ? AND vehicle_id IS NOT NULL)',
+            'driver_documents' => 'SELECT 1 FROM driver_documents d WHERE d.document_file LIKE ? AND d.driver_id = ?',
+            default => null,
+        };
+
+        if ($sql === null) {
+            return false;
+        }
+
+        $statement = \Core\Database::connection()->prepare($sql . ' LIMIT 1');
+        $statement->execute(['%/' . $name, $driverId]);
+
+        return $statement->fetchColumn() !== false;
     }
 
     private function fail(int $status, string $message): never

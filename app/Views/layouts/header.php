@@ -165,6 +165,9 @@ $searchIndex[] = ['label' => 'My profile', 'url' => url('account'), 'group' => '
               <?php foreach (\Models\ReportData::availableFor(current_role()) as $reportKey => $reportLabel): ?>
                 <li class="nav-item"><a class="nav-link pl-3<?= (current_route() === 'reports' && (($_GET['key'] ?? '') === $reportKey || str_ends_with($_SERVER['REQUEST_URI'] ?? '', '/' . $reportKey))) ? ' active' : '' ?>" href="<?= url(['reports', 'view', $reportKey]) ?>"><span class="ml-1 item-text"><?= e($reportLabel) ?></span></a></li>
               <?php endforeach; ?>
+              <?php if (can_view('report_emails')): ?>
+                <li class="nav-item"><a class="nav-link pl-3<?= nav_active('report_emails', '') ?>" href="<?= url('report_emails') ?>"><span class="ml-1 item-text"><i class="fe fe-mail fe-12 mr-1"></i>Report emails</span></a></li>
+              <?php endif; ?>
             </ul>
           </li>
         <?php endif; ?>

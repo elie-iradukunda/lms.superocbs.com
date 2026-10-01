@@ -441,7 +441,8 @@ final class Workflow
         if (!empty($trip['driver_id'])) {
             $db->prepare("UPDATE drivers SET status = 'available' WHERE id = ? AND status = 'on_trip'")->execute([(int) $trip['driver_id']]);
         }
-        $db->prepare("UPDATE shipments SET status = 'delivered' WHERE trip_id = ? AND deleted_at IS NULL AND status IN ('loaded','in_transit')")->execute([$id]);
+        // A load that cleared a border on the way is still aboard until the trip ends.
+        $db->prepare("UPDATE shipments SET status = 'delivered' WHERE trip_id = ? AND deleted_at IS NULL AND status IN ('loaded','in_transit','cleared','released')")->execute([$id]);
 
         $onTime = self::onTimeVerdict($trip);
         Notifier::toRole('logistics_manager', 'Trip completed', sprintf('%s arrived at %s. %s', $code, $trip['destination'], $onTime), 'trips', 'success', 'trips', $code);
@@ -502,7 +503,9 @@ final class Workflow
 
         CustomerMail::quote($id);
 
-        return sprintf('Quoted %s — %s.%s', Settings::money($quote['amount']), $quote['basis'], CustomerMail::outcome());
+        $quotedIn = (string) (Database::connection()->query('SELECT currency FROM transport_requests WHERE id = ' . (int) $id)->fetchColumn() ?: Currency::base());
+
+        return sprintf('Quoted %s — %s.%s', Currency::format((float) $quote['amount'], $quotedIn), $quote['basis'], CustomerMail::outcome());
     }
 
     private static function dropDelivery(PDO $db, array $delivery, string $code): string
@@ -619,14 +622,14 @@ final class Workflow
         Notifier::toUser(
             $expense['submitted_by'] !== null ? (int) $expense['submitted_by'] : null,
             'Expense approved',
-            sprintf('%s for %s was approved.', $code, Settings::money((float) $expense['amount'])),
+            sprintf('%s for %s was approved.', $code, Currency::format((float) $expense['amount'], (string) ($expense['currency'] ?? '') ?: Currency::base())),
             'expenses',
             'success',
             'expenses',
             $code
         );
 
-        return sprintf('Expense %s approved for %s.', $code, Settings::money((float) $expense['amount']));
+        return sprintf('Expense %s approved for %s.', $code, Currency::format((float) $expense['amount'], (string) ($expense['currency'] ?? '') ?: Currency::base()));
     }
 
     private static function rejectExpense(PDO $db, array $expense, string $code, ?int $actor, string $reason): string
@@ -915,11 +918,12 @@ final class Workflow
 
         Posting::tryPost('invoice', (int) $invoice['id']);
 
-        Notifier::toRole('finance', 'Invoice issued', sprintf('%s for %s is issued and due on %s.', $code, Settings::money((float) $invoice['total_amount']), $invoice['due_date']), 'invoices', 'info', 'invoices', $code);
+        $total = Currency::format((float) $invoice['total_amount'], (string) ($invoice['currency'] ?? '') ?: Currency::base());
+        Notifier::toRole('finance', 'Invoice issued', sprintf('%s for %s is issued and due on %s.', $code, $total, $invoice['due_date']), 'invoices', 'info', 'invoices', $code);
 
         $emailed = self::emailInvoice($db, $invoice, $code);
 
-        return sprintf('Invoice %s issued for %s.%s', $code, Settings::money((float) $invoice['total_amount']), $emailed);
+        return sprintf('Invoice %s issued for %s.%s', $code, $total, $emailed);
     }
 
     /**
@@ -958,13 +962,17 @@ final class Workflow
         $lines = $db->prepare('SELECT description, quantity, unit_price, line_total FROM invoice_lines WHERE invoice_id = ? ORDER BY id');
         $lines->execute([(int) $invoice['id']]);
 
+        // The customer is billed in their own currency, so the email says so.
+        $currency = (string) ($invoice['currency'] ?? '') ?: Currency::base();
+        $money = static fn (float $amount): string => Currency::format($amount, $currency);
+
         $rows = [];
         foreach ($lines->fetchAll(PDO::FETCH_ASSOC) as $line) {
             $rows[] = [
                 'description' => (string) $line['description'],
                 'quantity' => rtrim(rtrim(number_format((float) $line['quantity'], 2, '.', ''), '0'), '.'),
-                'unit_price' => Settings::money((float) $line['unit_price']),
-                'line_total' => Settings::money((float) $line['line_total']),
+                'unit_price' => $money((float) $line['unit_price']),
+                'line_total' => $money((float) $line['line_total']),
             ];
         }
 
@@ -990,14 +998,15 @@ final class Workflow
                 'numeric' => ['quantity', 'unit_price', 'line_total'],
                 'rows' => $rows,
                 'totals' => [
-                    'Subtotal' => Settings::money((float) $invoice['subtotal']),
-                    sprintf('VAT at %s%%', rtrim(rtrim(number_format((float) $invoice['tax_rate'], 2, '.', ''), '0'), '.')) => Settings::money((float) $invoice['tax_amount']),
-                    'Total due' => Settings::money((float) $invoice['total_amount']),
+                    'Subtotal' => $money((float) $invoice['subtotal']),
+                    sprintf('VAT at %s%%', rtrim(rtrim(number_format((float) $invoice['tax_rate'], 2, '.', ''), '0'), '.')) => $money((float) $invoice['tax_amount']),
+                    'Total due' => $money((float) $invoice['total_amount']),
                 ],
             ],
             'facts' => array_merge(
                 [
                     'Invoice number' => $code,
+                    'Your order (LPO)' => (string) ($invoice['lpo_number'] ?? ''),
                     'Invoice date' => (string) ($invoice['issue_date'] ?: date('Y-m-d')),
                     'Payment due by' => (string) $invoice['due_date'],
                 ],

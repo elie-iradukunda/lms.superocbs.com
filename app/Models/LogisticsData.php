@@ -686,11 +686,45 @@ final class LogisticsData
             }
         }
 
+        // A shipment is only ready to leave once every final check is ticked.
+        // (This used to sit in derive(), where none of these variables exist,
+        // so marking a check Ready crashed instead of being validated.)
+        if ($key === 'pre_dispatch_checks' && $value('status') === 'ready') {
+            foreach (['cargo_loaded', 'quantity_verified', 'packaging_verified', 'documents_verified', 'vehicle_verified', 'driver_verified', 'route_verified'] as $field) {
+                if ($value($field) === '' || $value($field) === '0') {
+                    $errors[] = 'Every final pre-dispatch item must be confirmed before marking this shipment ready.';
+                    break;
+                }
+            }
+        }
+
         if ($key === 'invoices') {
             $issue = $value('issue_date');
             $due = $value('due_date');
             if ($issue !== '' && $due !== '' && strtotime($due) < strtotime($issue)) {
                 $errors[] = 'The due date cannot be before the issue date.';
+            }
+        }
+
+        // Over-collecting is a typing mistake, not a payment: refuse it while the
+        // person still has the receipt in front of them.
+        if ($key === 'payments' && $value('invoice_id') !== '' && $value('amount') !== '') {
+            $invoice = self::db()->prepare('SELECT invoice_number, currency, total_amount FROM invoices WHERE id = ?');
+            $invoice->execute([(int) $value('invoice_id')]);
+            $row = $invoice->fetch();
+            if ($row !== false) {
+                $paidElsewhere = (float) self::scalar(
+                    'SELECT COALESCE(SUM(amount), 0) FROM payments WHERE invoice_id = ? AND deleted_at IS NULL AND id <> ?',
+                    [(int) $value('invoice_id'), (int) ($id ?? 0)]
+                );
+                $balance = round((float) $row['total_amount'] - $paidElsewhere, 2);
+                $amount = (float) str_replace(',', '', $value('amount'));
+                if ($amount <= 0) {
+                    $errors[] = 'Amount received must be more than zero.';
+                } elseif ($amount > $balance + 0.005) {
+                    $errors[] = sprintf('Only %s %s is still owed on %s; this payment of %s is more than that.',
+                        $row['currency'], number_format(max($balance, 0), 2), $row['invoice_number'], number_format($amount, 2));
+                }
             }
         }
 
@@ -880,15 +914,6 @@ final class LogisticsData
             }
         }
 
-        if ($key === 'pre_dispatch_checks' && $value('status') === 'ready') {
-            foreach (['cargo_loaded', 'quantity_verified', 'packaging_verified', 'documents_verified', 'vehicle_verified', 'driver_verified', 'route_verified'] as $field) {
-                if (($input[$field] ?? '') === '' || ($input[$field] ?? '') === '0') {
-                    $errors[] = 'Every final pre-dispatch item must be confirmed before marking this shipment ready.';
-                    break;
-                }
-            }
-        }
-
         if ($key === 'clearance_documents') {
             if (!empty($columns['expires_on']) && strtotime((string) $columns['expires_on']) < strtotime(date('Y-m-d'))) {
                 $columns['status'] = 'expired';
@@ -928,6 +953,16 @@ final class LogisticsData
 
         if ($key === 'invoices') {
             $columns['tax_rate'] ??= Settings::float('tax_rate', 18.0);
+        }
+
+        // A payment is money against one invoice, so it is in that invoice's
+        // currency. Taking it from the invoice means a dollar receipt can never
+        // be filed as francs by a dropdown left on its default.
+        if ($key === 'payments' && !empty($columns['invoice_id'])) {
+            $invoiceCurrency = (string) (self::scalar('SELECT currency FROM invoices WHERE id = ?', [(int) $columns['invoice_id']]) ?: '');
+            if ($invoiceCurrency !== '') {
+                $columns['currency'] = $invoiceCurrency;
+            }
         }
 
         if ($key === 'warehouse') {
@@ -1612,6 +1647,12 @@ final class LogisticsData
         'inventory_items' => 'item_name',
         'invoices' => 'invoice_number',
         'gl_accounts' => 'account_name',
+        // Customs clearance and cheques point at these. Without them every
+        // clearance, clearance document and cheque form was refused with
+        // "points at a record that does not exist".
+        'border_posts' => 'post_name',
+        'border_crossings' => 'reference',
+        'gl_cheque_books' => 'id',
     ];
 
     private static function relationAllowed(string $table, string $column): bool

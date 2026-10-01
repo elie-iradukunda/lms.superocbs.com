@@ -40,7 +40,7 @@ final class Notifier
     {
         $statement = \Core\Database::connection()->prepare(
             'SELECT p.payment_code, p.amount, p.method, p.reference, p.paid_at,
-                    i.invoice_number, i.total_amount, i.amount_paid, i.status,
+                    i.invoice_number, i.total_amount, i.amount_paid, i.status, i.currency,
                     c.customer_name, c.contact_name, c.email
                FROM payments p
                INNER JOIN invoices i ON i.id = p.invoice_id
@@ -55,12 +55,14 @@ final class Notifier
         }
 
         $outstanding = max(0.0, (float) $row['total_amount'] - (float) $row['amount_paid']);
+        // Receipts are written in the invoice's own currency, not the base one.
+        $money = static fn (float $amount): string => Currency::format($amount, (string) ($row['currency'] ?? '') ?: Currency::base());
 
         self::toRole(
             'finance',
             'Payment received',
             sprintf('%s of %s against %s. %s still outstanding.',
-                $row['payment_code'], Settings::money((float) $row['amount']), $row['invoice_number'], Settings::money($outstanding)),
+                $row['payment_code'], $money((float) $row['amount']), $row['invoice_number'], $money($outstanding)),
             'payments',
             'success',
             'payments',
@@ -90,11 +92,11 @@ final class Notifier
                 'columns' => ['detail' => 'Detail', 'value' => 'Amount'],
                 'numeric' => ['value'],
                 'rows' => [
-                    ['detail' => 'Invoice total', 'value' => Settings::money((float) $row['total_amount'])],
-                    ['detail' => 'Paid before this receipt', 'value' => Settings::money(max(0.0, (float) $row['amount_paid'] - (float) $row['amount']))],
-                    ['detail' => 'This payment', 'value' => Settings::money((float) $row['amount'])],
+                    ['detail' => 'Invoice total', 'value' => $money((float) $row['total_amount'])],
+                    ['detail' => 'Paid before this receipt', 'value' => $money(max(0.0, (float) $row['amount_paid'] - (float) $row['amount']))],
+                    ['detail' => 'This payment', 'value' => $money((float) $row['amount'])],
                 ],
-                'totals' => [$outstanding > 0 ? 'Still outstanding' : 'Balance' => Settings::money($outstanding)],
+                'totals' => [$outstanding > 0 ? 'Still outstanding' : 'Balance' => $money($outstanding)],
             ],
             'facts' => [
                 'Receipt number' => (string) $row['payment_code'],
@@ -105,7 +107,7 @@ final class Notifier
             ],
             'closing' => [
                 $outstanding > 0
-                    ? sprintf('%s remains outstanding on this invoice. Please quote the invoice number on your next payment.', Settings::money($outstanding))
+                    ? sprintf('%s remains outstanding on this invoice. Please quote the invoice number on your next payment.', $money($outstanding))
                     : 'This invoice is now settled in full. No further action is needed.',
                 'If any detail above is not as you expected, reply to this message and we will check it.',
             ],
