@@ -13,6 +13,7 @@ class DashboardController
         'warehouse_manager' => ['Warehouse control', 'Keep stock levels healthy and procurement moving for every depot.'],
         'driver' => ['Driver workspace', 'See your assigned trips, delivery instructions and proof of delivery tasks.'],
         'finance' => ['Finance dashboard', 'Control logistics spending, fuel costs, approvals and monthly financial reports.'],
+        'workshop' => ['Workshop', 'Job cards to work on, vehicles off the road, services coming due and the parts on the shelf.'],
         'management' => ['Management overview', 'Track the operational and financial indicators that need leadership attention.'],
     ];
 

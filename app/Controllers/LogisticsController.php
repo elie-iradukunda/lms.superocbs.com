@@ -452,8 +452,90 @@ final class LogisticsController
             'lookups' => ['is_active' => 1],
             'warehouses' => ['status' => 'active'],
             'report_emails' => ['is_active' => 1, 'frequency' => 'weekly'],
+            'supplier_bills' => ['status' => 'draft', 'bill_date' => $today, 'currency' => \Models\Currency::base(), 'tax_rate' => 0],
+            'supplier_payments' => ['method' => 'bank_transfer', 'paid_at' => $now, 'recorded_by' => \current_user_id()],
+            'storage_lots' => ['received_at' => $now, 'unit' => 'Bags', 'free_days' => 7, 'charge_basis' => 'per_unit_day', 'daily_rate' => 0, 'currency' => \Models\Currency::base(), 'status' => 'in_store'],
+            'storage_releases' => ['released_at' => $now, 'authorised_by' => \current_user_id()],
+            'containers' => ['picked_up_at' => $now, 'free_days' => 14, 'currency' => 'USD', 'container_size' => '20ft', 'status' => 'out_full'],
+            'bank_statements' => ['status' => 'open', 'currency' => \Models\Currency::base(), 'period_from' => date('Y-m-01', strtotime('first day of last month')), 'period_to' => date('Y-m-t', strtotime('last day of last month')), 'opening_balance' => 0],
+            'disbursements' => ['status' => 'pending', 'paid_at' => $today, 'method' => 'bank_transfer', 'currency' => \Models\Currency::base(), 'category' => 'Customs duty'],
             default => [],
         };
+
+        // "Record disbursement" / "Record supplier bill" from a trip page.
+        if (in_array($key, ['disbursements', 'supplier_bills'], true) && ($_GET['trip_id'] ?? '') !== '') {
+            $trip = LogisticsData::find('trips', (int) $_GET['trip_id'], \current_context());
+            if ($trip !== null) {
+                $defaults['trip_id'] = $trip['id'];
+                if ($key === 'disbursements' && !empty($trip['customer_id'])) {
+                    $defaults['customer_id'] = $trip['customer_id'];
+                    $currency = \Core\Database::connection()->prepare('SELECT currency FROM customers WHERE id = ?');
+                    $currency->execute([(int) $trip['customer_id']]);
+                    $defaults['currency'] = $currency->fetchColumn() ?: $defaults['currency'];
+                }
+            }
+        }
+
+        // "Keep in storage" / "Track container" from a shipment: the cargo, the
+        // customer and the box are already on file.
+        if (in_array($key, ['storage_lots', 'containers'], true) && ($_GET['shipment_id'] ?? '') !== '') {
+            $shipment = LogisticsData::find('shipments', (int) $_GET['shipment_id'], \current_context());
+            if ($shipment !== null) {
+                $defaults['shipment_id'] = $shipment['id'];
+                $defaults['customer_id'] = $shipment['customer_id'];
+                if ($key === 'storage_lots') {
+                    $defaults += [
+                        'warehouse_id' => $shipment['destination_warehouse_id'] ?? null,
+                        'description' => $shipment['cargo_description'],
+                        'quantity_received' => $shipment['packages_count'],
+                        'weight_kg' => $shipment['weight_kg'],
+                        'volume_m3' => $shipment['volume_m3'] ?? null,
+                    ];
+                } else {
+                    $defaults += [
+                        'container_no' => $shipment['container_no'] ?? null,
+                        'container_size' => $shipment['container_size'] ?? null,
+                        'bill_of_lading' => $shipment['bill_of_lading'] ?? null,
+                        'trip_id' => $shipment['trip_id'],
+                    ];
+                }
+            }
+        }
+
+        // "Release goods" from a lot: what is left is what normally goes.
+        if ($key === 'storage_releases' && ($_GET['lot_id'] ?? '') !== '') {
+            $lot = \Models\Storage::lot((int) $_GET['lot_id']);
+            if ($lot !== null) {
+                $defaults['lot_id'] = $lot['id'];
+                $defaults['quantity'] = \Models\Storage::onHand((int) $lot['id']);
+            }
+        }
+
+        // "Add next leg" on a journey: the next truck starts where the last ends.
+        if ($key === 'trips' && ($_GET['journey_id'] ?? '') !== '') {
+            $leg = \Models\Journey::nextLegDefaults((int) $_GET['journey_id']);
+            if ($leg !== null) {
+                $defaults = $leg + $defaults;
+            }
+        }
+
+        // "Pay this bill" from a bill page: the balance is what is normally paid.
+        if ($key === 'supplier_payments' && ($_GET['bill_id'] ?? '') !== '') {
+            $bill = LogisticsData::find('supplier_bills', (int) $_GET['bill_id'], \current_context());
+            if ($bill !== null) {
+                $defaults['bill_id'] = $bill['id'];
+                $defaults['amount'] = max(0, round((float) $bill['total_amount'] - (float) $bill['amount_paid'], 2));
+            }
+        }
+
+        // Any other link that carries a record along ("Record garage bill" from
+        // a work order) pre-selects it. Only relation fields are read, and only
+        // as numbers; saving still checks the record exists.
+        foreach (\Models\Schema::fields($key) as $name => $field) {
+            if ($field['type'] === 'relation' && !isset($defaults[$name]) && ctype_digit((string) ($_GET[$name] ?? ''))) {
+                $defaults[$name] = (int) $_GET[$name];
+            }
+        }
 
         // "Record expense" / "Record fuel" from a trip: the trip and its truck are
         // already known, so the driver only types what is on the receipt.

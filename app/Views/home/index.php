@@ -18,6 +18,12 @@ $minutes = isset($_GET['minutes']) ? (int) $_GET['minutes'] : 0;
   <meta name="robots" content="noindex, nofollow">
   <title>Sign in | <?= e($company) ?></title>
   <link rel="icon" href="<?= $baseUrl ?>/assets/img/logistics-logo.svg">
+  <link rel="manifest" href="<?= $baseUrl ?>/manifest.webmanifest">
+  <meta name="theme-color" content="#1f4e8c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="LMS">
+  <link rel="apple-touch-icon" href="<?= $baseUrl ?>/assets/img/app-icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -137,8 +143,7 @@ $minutes = isset($_GET['minutes']) ? (int) $_GET['minutes'] : 0;
     <?php endif; ?>
 
     <form method="post" action="<?= url('login') ?>" autocomplete="on">
-      <?= csrf_field() ?>
-      <div class="form-group">
+      <?= csrf_field() ?>      <div class="form-group">
         <label for="loginEmail">Email</label>
         <input class="form-control" id="loginEmail" name="email" type="email" value="<?= e((string) ($_GET['email'] ?? '')) ?>"
                autocomplete="username" autofocus required>
@@ -149,6 +154,7 @@ $minutes = isset($_GET['minutes']) ? (int) $_GET['minutes'] : 0;
       </div>
       <button class="btn btn-primary btn-block" type="submit"><i class="fe fe-log-in fe-16 mr-2"></i>Sign in</button>
     </form>
+    <button type="button" class="btn btn-outline-primary btn-block mt-2" data-install-app hidden><i class="fe fe-smartphone fe-16 mr-2"></i>Install on this phone</button>
 
     <p class="mt-3 mb-0 small"><a href="<?= url('forgot-password') ?>">Forgotten your password?</a></p>
 
@@ -208,5 +214,6 @@ $minutes = isset($_GET['minutes']) ? (int) $_GET['minutes'] : 0;
     tl.to(truck, {scaleX: 1, duration: 0.25, ease: 'power1.inOut'});
   })();
   </script>
+<?php require __DIR__ . '/../layouts/pwa.php'; ?>
 </body>
 </html>

@@ -270,5 +270,6 @@ $(function () {
   });
 })();
 </script>
+<?php require __DIR__ . '/pwa.php'; ?>
 </body>
 </html>

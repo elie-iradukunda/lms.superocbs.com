@@ -36,6 +36,7 @@ final class ChartData
             'warehouse_manager' => [self::stockLevels(8), self::stockStatus(4), self::stockValue(6), self::purchaseStatus(6)],
             'finance' => [self::expensesByCategory(4), self::expenseTrend(8), self::expenseStatusByMonth(6), self::fuelCostByVehicle(6), self::procurementBySupplier(12)],
             'management' => [self::fleetUtilization(4), self::tripsTrend(8), self::costTrend(6), self::costPerTrip(6)],
+            'workshop' => [self::fleetStatus(4), self::maintenanceCost(8)],
             'driver' => self::driverCharts($userId),
             default => [],
         };
@@ -95,6 +96,12 @@ final class ChartData
                 $card('Monthly logistics cost', self::rwf($monthExpenses), "{$pendingExpenses['n']} pending approval", 'credit-card'),
                 $card('Open risks', $serviceDue + $lowStock + self::licencesExpiringCount(90), 'service, licences, stock', 'alert-triangle'),
             ],
+            'workshop' => [
+                $card('Open job cards', (int) self::scalar("SELECT COUNT(*) FROM maintenance_orders WHERE deleted_at IS NULL AND status IN ('open','scheduled','in_progress')"), self::scalar("SELECT COUNT(*) FROM maintenance_orders WHERE deleted_at IS NULL AND status IN ('open','scheduled','in_progress') AND priority IN ('high','urgent')") . ' high or urgent', 'tool'),
+                $card('In the workshop', (int) self::scalar("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND status = 'maintenance'"), 'vehicles off the road', 'truck'),
+                $card('Due for service', $serviceDue, self::scalar('SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND next_service_date < ?', [$today]) . ' overdue', 'calendar'),
+                $card('Parts low in stock', $lowStock, 'at or below minimum', 'package'),
+            ],
             'driver' => self::driverMetrics($userId),
             default => [],
         };
@@ -139,6 +146,7 @@ final class ChartData
         $keys = match ($role) {
             'fleet_manager' => ['service', 'licences', 'work_orders'],
             'warehouse_manager' => ['stock', 'purchases', 'work_orders'],
+            'workshop' => ['work_orders', 'service', 'stock'],
             'finance' => ['approvals', 'purchases', 'stock'],
             default => ['service', 'licences', 'approvals', 'stock'],
         };

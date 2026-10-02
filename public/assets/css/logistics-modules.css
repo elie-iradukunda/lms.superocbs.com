@@ -389,3 +389,33 @@ body.dark{--lms-line:#3a4149;--lms-muted:#a8b2bb;--lms-ink:#e7ecf0;--lms-surface
 @media (max-width: 575.98px) {
   .lms-photo-row { flex-direction: column; align-items: flex-start; }
 }
+
+/* --- on a phone ------------------------------------------------------------
+   The same website, used one-handed: fields that do not zoom the page when
+   tapped, buttons that wrap instead of running off the screen, tables that
+   scroll sideways, and room for the phone's own status bar when the site is
+   opened from the home screen.
+   ------------------------------------------------------------------------- */
+@media (max-width: 767.98px) {
+  .form-control, .custom-select, select.form-control, textarea.form-control { font-size: 16px; }
+  .main-content { padding-left: 10px; padding-right: 10px; }
+  .lms-page-title { font-size: 1.25rem; }
+  .lms-page-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .lms-page-actions > .btn, .lms-page-actions > form, .lms-page-actions > a { flex: 1 1 auto; }
+  .lms-page-actions form .btn { width: 100%; }
+  .lms-page-actions .btn, .lms-form-bar .btn { min-height: 44px; }
+  .card-body { padding: 14px; }
+  .table-responsive, .lms-section .card-body > table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table td, .table th { white-space: nowrap; }
+  .table td.text-wrap, .table td .text-wrap { white-space: normal; }
+  #leftSidebar .nav-link { padding-top: .7rem; padding-bottom: .7rem; }
+  .dropdown-menu { max-width: calc(100vw - 20px); }
+  .lms-notify-menu { width: calc(100vw - 20px); }
+}
+
+/* Opened from the home screen: no browser bar, so leave room for the clock
+   and battery at the top and the gesture bar at the bottom. */
+@media (display-mode: standalone) {
+  .topnav { padding-top: calc(.5rem + env(safe-area-inset-top)); }
+  .main-content { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+}

@@ -34,6 +34,21 @@ final class Billing
             return ['ok' => false, 'message' => sprintf('%s was cancelled, so there is nothing to bill.', $trip['reference_code']), 'invoices' => []];
         }
 
+        // A leg of a journey is billed as the whole journey: the customer pays
+        // once for Dar es Salaam to Kigali, not once per truck. The invoice sits
+        // on the first leg and carries the journey.
+        $journeyId = (int) ($trip['journey_id'] ?? 0);
+        $legIds = [$tripId];
+        if ($journeyId > 0) {
+            $legs = array_values(array_filter(Journey::legs($journeyId), static fn (array $leg): bool => $leg['status'] !== 'cancelled'));
+            if ($legs !== []) {
+                $legIds = array_map(static fn (array $leg): int => (int) $leg['id'], $legs);
+                $trip = $legs[0] + ['journey_reference' => (string) self::scalar('SELECT journey_code FROM journeys WHERE id = ?', [$journeyId])];
+                $tripId = (int) $trip['id'];
+            }
+        }
+        $legList = implode(',', array_map('intval', $legIds));
+
         $statement = $db->prepare(
             "SELECT s.*, c.currency AS customer_currency, c.payment_terms_days, r.lpo_number AS request_lpo,
                     r.quoted_amount AS request_quote, r.currency AS request_currency,
@@ -41,10 +56,10 @@ final class Billing
                FROM shipments s
                INNER JOIN customers c ON c.id = s.customer_id
                LEFT JOIN transport_requests r ON r.id = s.request_id
-              WHERE s.trip_id = ? AND s.deleted_at IS NULL AND s.status <> 'cancelled'
+              WHERE s.trip_id IN ({$legList}) AND s.deleted_at IS NULL AND s.status <> 'cancelled'
               ORDER BY s.id"
         );
-        $statement->execute([$tripId]);
+        $statement->execute();
         $loads = $statement->fetchAll(PDO::FETCH_ASSOC);
 
         // A truck hired whole by one customer may carry no booked shipment; the
@@ -88,9 +103,9 @@ final class Billing
 
             $existing = self::row(
                 "SELECT id, invoice_number FROM invoices
-                  WHERE trip_id = ? AND customer_id = ? AND currency = ? AND deleted_at IS NULL AND status <> 'cancelled'
+                  WHERE trip_id IN ({$legList}) AND customer_id = ? AND currency = ? AND deleted_at IS NULL AND status <> 'cancelled'
                   ORDER BY id LIMIT 1",
-                [$tripId, $customerId, $currency]
+                [$customerId, $currency]
             );
             if ($existing !== null) {
                 $results[] = ['id' => (int) $existing['id'], 'number' => (string) $existing['invoice_number'], 'created' => false];
@@ -114,8 +129,13 @@ final class Billing
                 'issue_date' => date('Y-m-d'),
                 'due_date' => date('Y-m-d', strtotime('+' . $terms . ' days')),
                 'tax_rate' => (string) Settings::float('tax_rate', 18.0),
-                'notes' => sprintf('Raised from trip %s (%s to %s).', $trip['reference_code'], $trip['pickup_location'], $trip['destination']),
+                'notes' => $journeyId > 0
+                    ? sprintf('Raised from journey %s (%d legs).', $trip['journey_reference'] ?? '', count($legIds))
+                    : sprintf('Raised from trip %s (%s to %s).', $trip['reference_code'], $trip['pickup_location'], $trip['destination']),
             ]);
+            if ($journeyId > 0) {
+                $db->prepare('UPDATE invoices SET journey_id = ? WHERE id = ?')->execute([$journeyId, $invoiceId]);
+            }
 
             $lines = [];
             foreach ($group as $load) {
@@ -139,13 +159,21 @@ final class Billing
             }
             LogisticsData::saveLines('invoices', $invoiceId, $lines);
 
+            // Duty and port charges paid for this customer go on the same
+            // invoice, at cost and without VAT, so none is left unclaimed.
+            try {
+                $disbursed = Payables::addToInvoice($invoiceId);
+            } catch (\Throwable) {
+                $disbursed = 0;
+            }
+
             $number = (string) self::scalar('SELECT invoice_number FROM invoices WHERE id = ?', [$invoiceId]);
             AuditLog::record('invoice.from_trip', 'invoices', $number, null, ['trip' => $trip['reference_code']]);
             Notifier::toRole('finance', 'Draft invoice ready to issue',
                 sprintf('%s was raised from trip %s. Check it and press Issue invoice.', $number, $trip['reference_code']),
                 'invoices', 'info', 'invoices', (string) $invoiceId);
 
-            $results[] = ['id' => $invoiceId, 'number' => $number, 'created' => true];
+            $results[] = ['id' => $invoiceId, 'number' => $number, 'created' => true, 'disbursements' => $disbursed];
         }
 
         $created = array_values(array_filter($results, static fn (array $r): bool => $r['created']));
@@ -156,6 +184,10 @@ final class Billing
             $parts[] = sprintf('Draft invoice%s %s raised from %s. Check %s and press Issue invoice.',
                 count($created) === 1 ? '' : 's', implode(', ', array_column($created, 'number')), $trip['reference_code'],
                 count($created) === 1 ? 'it' : 'each one');
+        }
+        $disbursedLines = array_sum(array_column($created, 'disbursements'));
+        if ($disbursedLines > 0) {
+            $parts[] = sprintf('%d disbursement%s recharged at cost.', $disbursedLines, $disbursedLines === 1 ? '' : 's');
         }
         if ($kept !== []) {
             $parts[] = sprintf('Already invoiced: %s.', implode(', ', array_column($kept, 'number')));

@@ -30,11 +30,18 @@ $searchIndex[] = ['label' => 'My profile', 'url' => url('account'), 'group' => '
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover">
   <meta name="description" content="LMS - Logistics Management System">
   <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
   <title><?= e(($title ?? 'Dashboard') . ' | LMS') ?></title>
   <link rel="icon" href="<?= $baseUrl ?>/assets/img/logistics-logo.svg">
+  <?php /* The site can be put on a phone's home screen and opens like an app. */ ?>
+  <link rel="manifest" href="<?= $baseUrl ?>/manifest.webmanifest">
+  <meta name="theme-color" content="#1f4e8c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="LMS">
+  <link rel="apple-touch-icon" href="<?= $baseUrl ?>/assets/img/app-icon-192.png">
   <link rel="stylesheet" href="<?= $baseUrl ?>/assets/css/simplebar.css">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= $baseUrl ?>/assets/css/feather.css">
@@ -60,6 +67,9 @@ $searchIndex[] = ['label' => 'My profile', 'url' => url('account'), 'group' => '
       <ul class="lms-search-results" hidden></ul>
     </form>
     <ul class="nav ml-auto">
+      <li class="nav-item" data-install-app hidden>
+        <a class="nav-link logistics-top-control" href="#" role="button" title="Install on this phone" aria-label="Install on this phone"><i class="fe fe-smartphone fe-16"></i></a>
+      </li>
       <li class="nav-item dropdown lms-notify">
         <a class="nav-link logistics-top-control lms-bell dropdown-toggle" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-label="Updates" title="Updates">
           <i class="fe fe-bell fe-16"></i><?php if ($unreadNotifications > 0): ?><em class="lms-bell-badge"><?= $unreadNotifications > 9 ? '9+' : (int) $unreadNotifications ?></em><?php endif; ?>

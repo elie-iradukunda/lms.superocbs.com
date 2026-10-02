@@ -4,6 +4,7 @@
 
 use Controllers\AccountController;
 use Controllers\AuditController;
+use Controllers\BankController;
 use Controllers\BooksController;
 use Controllers\DashboardController;
 use Controllers\FileController;
@@ -90,6 +91,15 @@ $router->get('/audit/export', [AuditController::class, 'export'], ['permission' 
 // read as anything else.
 $router->get('/deliveries/{id}/note', [OperationsController::class, 'deliveryNote'], ['permission' => 'deliveries']);
 $router->post('/trips/{id}/invoice', [OperationsController::class, 'invoiceTrip'], ['permission' => 'invoices', 'ability' => 'create']);
+$router->post('/invoices/{id}/disbursements', [OperationsController::class, 'invoiceDisbursements'], ['permission' => 'invoices', 'ability' => 'edit']);
+$router->get('/storage_lots/{id}/grn', [OperationsController::class, 'storageGrn'], ['permission' => 'storage_lots']);
+$router->post('/storage_lots/{id}/bill', [OperationsController::class, 'billStorage'], ['permission' => 'invoices', 'ability' => 'create']);
+$router->get('/storage_releases/{id}/pass', [OperationsController::class, 'storagePass'], ['permission' => 'storage_releases']);
+$router->post('/trips/{id}/handover', [OperationsController::class, 'handOver'], ['permission' => 'trips', 'ability' => 'edit']);
+$router->post('/journeys/{id}/invoice', [OperationsController::class, 'invoiceJourney'], ['permission' => 'invoices', 'ability' => 'create']);
+$router->post('/containers/{id}/recharge', [OperationsController::class, 'rechargeContainer'], ['permission' => 'disbursements', 'ability' => 'create']);
+$router->get('/bank_statements/{id}/reconcile', [BankController::class, 'reconcile'], ['permission' => 'bank_statements']);
+$router->post('/bank_statements/{id}/reconcile/{op}', [BankController::class, 'act'], ['permission' => 'bank_statements', 'ability' => 'edit']);
 $router->post('/report_emails/{id}/send', [OperationsController::class, 'sendReport'], ['permission' => 'report_emails', 'ability' => 'edit']);
 
 // ------------------------------------------------------- data imports
@@ -101,13 +111,13 @@ $router->post('/accounts/import', [ImportController::class, 'accountsImport'], [
 // Every module below is driven by Models\Schema: one controller, one set of
 // routes, and a permission check per ability.
 $modules = [
-    'vehicles', 'drivers', 'vehicle_documents', 'maintenance',
-    'requests', 'trips', 'shipments', 'deliveries', 'crossings', 'border_posts',
+    'vehicles', 'drivers', 'driver_documents', 'vehicle_documents', 'maintenance',
+    'requests', 'journeys', 'trips', 'shipments', 'deliveries', 'crossings', 'border_posts',
     'shipment_documents', 'pre_dispatch_checks',
     'clearance_documents', 'clearance_inspections', 'clearance_payments', 'clearance_releases',
     'customers', 'rates', 'invoices', 'payments',
-    'fuel', 'expenses',
-    'warehouses', 'warehouse', 'movements', 'procurement', 'suppliers',
+    'fuel', 'expenses', 'supplier_bills', 'supplier_payments', 'disbursements', 'bank_statements',
+    'warehouses', 'warehouse', 'movements', 'procurement', 'suppliers', 'storage_lots', 'storage_releases', 'containers',
     'users', 'accounts', 'payment_methods', 'cheques', 'cheque_books', 'budgets', 'currencies', 'lookups',
     'report_emails',
 ];

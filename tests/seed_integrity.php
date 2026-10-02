@@ -67,7 +67,7 @@ try {
     // ------------------------------------------------------------- accounts
     $repository = new Models\UserRepository();
     $accounts = $repository->activeLoginAccounts();
-    $test->same(7, count($accounts), 'all seven roles have an active login account');
+    $test->same(count(role_definitions()), count($accounts), 'every role has an active login account');
 
     $privileges = $pdo->query('SELECT email, prvg FROM users')->fetchAll(PDO::FETCH_KEY_PAIR);
     $test->same(1, (int) ($privileges['admin@itec.rw'] ?? 0), 'the seeded admin may switch roles');

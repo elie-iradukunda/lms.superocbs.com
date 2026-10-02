@@ -8,7 +8,21 @@
     </div>
   <?php endif; ?>
   <div class="row justify-content-center"><div class="col-12"><div class="row align-items-center mb-2"><div class="col"><h2 class="h5 page-title"><?= htmlspecialchars($title) ?></h2></div></div></div>
-  <?php if (($role ?? '') === 'driver' && current_driver_id() !== null) { require __DIR__ . '/driver_trips.php'; } ?>
+  <?php
+  // The driver's trips panel reads many tables. If any of it fails, the rest of
+  // the dashboard still opens and the reason is written to the error log.
+  if (($role ?? '') === 'driver' && current_driver_id() !== null) {
+      ob_start();
+      try {
+          require __DIR__ . '/driver_trips.php';
+          echo ob_get_clean();
+      } catch (\Throwable $panelError) {
+          ob_end_clean();
+          error_log(sprintf('LMS driver panel: %s: %s in %s:%d', $panelError::class, $panelError->getMessage(), $panelError->getFile(), $panelError->getLine()));
+          echo '<div class="col-12 mb-3"><div class="alert alert-warning mb-0"><i class="fe fe-alert-triangle mr-2"></i>Your trips and papers could not be shown just now. The rest of the dashboard is below; the office has the details in the error log.</div></div>';
+      }
+  }
+  ?>
   <div class="col-12"><div class="row">
     <?php foreach ($metrics as $index => $metric): ?><div class="col-md-6 col-xl-3 mb-4"><div class="card shadow border-0 <?= $index === 2 ? 'bg-primary text-white' : '' ?>"><div class="card-body"><div class="row align-items-center"><div class="col-3 text-center"><span class="circle circle-sm <?= $index === 2 ? 'bg-primary-light' : 'bg-primary' ?>"><i class="fe fe-<?= htmlspecialchars($metric['icon']) ?> fe-16 text-white mb-0"></i></span></div><div class="col pr-0"><p class="small <?= $index === 2 ? 'text-white' : 'text-muted' ?> mb-0"><?= htmlspecialchars($metric['label']) ?></p><span class="h3 mb-0 <?= $index === 2 ? 'text-white' : '' ?>"><?= htmlspecialchars($metric['value']) ?></span><span class="small <?= $index === 2 ? 'text-white' : 'text-success' ?> ml-2"><?= htmlspecialchars($metric['trend']) ?></span></div></div></div></div></div><?php endforeach; ?>
   </div></div>

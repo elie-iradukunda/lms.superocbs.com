@@ -351,24 +351,24 @@ function navigation(): array
 {
     $groups = [
         ['label' => 'Fleet management', 'icon' => 'truck', 'id' => 'fleetMenu', 'items' => [
-            ['vehicles', 'Vehicles'], ['drivers', 'Drivers'], ['maintenance', 'Maintenance'], ['vehicle_documents', 'Vehicle documents'],
+            ['vehicles', 'Vehicles'], ['drivers', 'Drivers'], ['driver_documents', 'Driver papers'], ['maintenance', 'Maintenance'], ['vehicle_documents', 'Vehicle documents'],
         ]],
         ['label' => 'Transport', 'icon' => 'map-pin', 'id' => 'transportMenu', 'items' => [
             // Short labels: the sidebar is narrow, and a name that wraps onto two
             // lines is hard to scan. The page itself still carries the full title.
-            ['requests', 'Transport requests'], ['trips', 'Trips'], ['shipments', 'Shipments'], ['shipment_documents', 'Shipment papers'], ['pre_dispatch_checks', 'Dispatch checks'], ['deliveries', 'Deliveries'], ['crossings', 'Customs clearance'], ['clearance_documents', 'Customs documents'], ['clearance_inspections', 'Inspections'], ['clearance_payments', 'Customs payments'], ['clearance_releases', 'Customs releases'], ['border_posts', 'Border posts'],
+            ['requests', 'Transport requests'], ['journeys', 'Journeys'], ['trips', 'Trips'], ['shipments', 'Shipments'], ['shipment_documents', 'Shipment papers'], ['pre_dispatch_checks', 'Dispatch checks'], ['deliveries', 'Deliveries'], ['crossings', 'Customs clearance'], ['clearance_documents', 'Customs documents'], ['clearance_inspections', 'Inspections'], ['clearance_payments', 'Customs payments'], ['clearance_releases', 'Customs releases'], ['containers', 'Containers'], ['border_posts', 'Border posts'],
         ]],
         ['label' => 'Commercial', 'icon' => 'briefcase', 'id' => 'commercialMenu', 'items' => [
-            ['customers', 'Customers'], ['rates', 'Rate cards'], ['invoices', 'Invoices'], ['payments', 'Payments received'],
+            ['customers', 'Customers'], ['rates', 'Rate cards'], ['invoices', 'Invoices'], ['payments', 'Payments received'], ['disbursements', 'Disbursements'],
         ]],
         ['label' => 'Finance', 'icon' => 'credit-card', 'id' => 'financeMenu', 'items' => [
-            ['fuel', 'Fuel management'], ['expenses', 'Trip expenses'],
+            ['fuel', 'Fuel management'], ['expenses', 'Trip expenses'], ['supplier_bills', 'Supplier bills'], ['supplier_payments', 'Supplier payments'],
         ]],
         ['label' => 'Warehouse', 'icon' => 'package', 'id' => 'warehouseMenu', 'items' => [
-            ['warehouses', 'Warehouses'], ['warehouse', 'Inventory'], ['movements', 'Stock movements'], ['procurement', 'Procurement'], ['suppliers', 'Suppliers'],
+            ['warehouses', 'Warehouses'], ['storage_lots', 'Customer storage'], ['storage_releases', 'Gate passes'], ['warehouse', 'Inventory'], ['movements', 'Stock movements'], ['procurement', 'Procurement'], ['suppliers', 'Suppliers'],
         ]],
         ['label' => 'Accounting', 'icon' => 'book', 'id' => 'accountingMenu', 'items' => [
-            ['books', 'Accounting books'], ['journal', 'Journal'], ['accounts', 'Chart of accounts'], ['cheques', 'Cheques'], ['cheque_books', 'Cheque books'], ['budgets', 'Budget'], ['currencies', 'Currencies'], ['currency_rates', 'Exchange rates'], ['payment_methods', 'Payment methods'],
+            ['books', 'Accounting books'], ['journal', 'Journal'], ['accounts', 'Chart of accounts'], ['cheques', 'Cheques'], ['cheque_books', 'Cheque books'], ['bank_statements', 'Bank reconciliation'], ['budgets', 'Budget'], ['currencies', 'Currencies'], ['currency_rates', 'Exchange rates'], ['payment_methods', 'Payment methods'],
         ]],
     ];
 

@@ -28,6 +28,8 @@ final class ReportData
         'inventory_movement' => 'Inventory movement',
         'trip_profitability' => 'Trip profitability',
         'expense_summary' => 'Expense summary',
+        'ar_aging' => 'Customer balances (AR aging)',
+        'ap_aging' => 'What we owe (AP aging)',
     ];
 
     private const PERMISSIONS = [
@@ -39,6 +41,8 @@ final class ReportData
         'inventory_movement' => 'warehouse',
         'trip_profitability' => 'trips',
         'expense_summary' => 'expenses',
+        'ar_aging' => 'invoices',
+        'ap_aging' => 'supplier_bills',
     ];
 
     private const DESCRIPTIONS = [
@@ -50,6 +54,8 @@ final class ReportData
         'inventory_movement' => 'Stock in, stock out and closing balance per item over the period.',
         'trip_profitability' => 'Invoiced revenue, net of VAT, against trip cost (expenses plus fuel) for each trip, and the resulting margin.',
         'expense_summary' => 'Expense totals per category with approved, pending and rejected value.',
+        'ar_aging' => 'What each customer still owes on issued invoices, by how late it is: not yet due, 1-30, 31-60, 61-90 and over 90 days past the due date, as at the end date. Each currency on its own row.',
+        'ap_aging' => 'What we still owe each supplier on approved bills, by how late it is, as at the end date. Pay the oldest first. Each currency on its own row.',
     ];
 
     public static function keys(): array
@@ -116,6 +122,8 @@ final class ReportData
             'inventory_movement' => self::inventoryMovement($from, $to),
             'trip_profitability' => self::tripProfitability($from, $to),
             'expense_summary' => self::expenseSummary($from, $to),
+            'ar_aging' => self::aging('receivable', $to),
+            'ap_aging' => self::aging('payable', $to),
         };
 
         self::touchCatalogue($key);
@@ -426,6 +434,24 @@ final class ReportData
 
     private static function tripProfitability(string $from, string $to): array
     {
+        // Once supplier bills and disbursements exist: duty recharged at cost is
+        // not revenue, and a subcontractor's or agent's bill on the trip is cost.
+        $payables = self::tableExists('supplier_bills');
+        $revenue = $payables
+            ? "SELECT i.trip_id, SUM(i.subtotal - COALESCE((SELECT SUM(l.line_total) FROM invoice_lines l WHERE l.invoice_id = i.id AND l.line_kind = 'disbursement'), 0)) AS revenue
+                 FROM invoices i
+                WHERE i.deleted_at IS NULL AND i.status <> 'cancelled' AND i.trip_id IS NOT NULL
+                GROUP BY i.trip_id"
+            : "SELECT trip_id, SUM(subtotal) AS revenue
+                 FROM invoices
+                WHERE deleted_at IS NULL AND status <> 'cancelled' AND trip_id IS NOT NULL
+                GROUP BY trip_id";
+        $bills = $payables
+            ? "SELECT trip_id, SUM(subtotal) AS cost FROM supplier_bills
+                WHERE deleted_at IS NULL AND status <> 'cancelled' AND trip_id IS NOT NULL
+                GROUP BY trip_id"
+            : 'SELECT NULL AS trip_id, 0 AS cost';
+
         $rows = self::rows(
             "SELECT t.reference_code,
                     COALESCE(c.customer_name, 'Internal') AS customer,
@@ -433,18 +459,16 @@ final class ReportData
                     t.destination,
                     t.status,
                     COALESCE(inv.revenue, 0) AS revenue,
-                    COALESCE(exp.cost, 0) AS expense_cost,
+                    COALESCE(exp.cost, 0) + COALESCE(bil.cost, 0) AS expense_cost,
                     COALESCE(fue.cost, 0) AS fuel_cost
              FROM trips t
              LEFT JOIN customers c ON c.id = t.customer_id
              LEFT JOIN (
                  -- Net of VAT: the tax is collected for the revenue authority,
                  -- so it was never the carrier's revenue to earn a margin on.
-                 SELECT trip_id, SUM(subtotal) AS revenue
-                 FROM invoices
-                 WHERE deleted_at IS NULL AND status <> 'cancelled' AND trip_id IS NOT NULL
-                 GROUP BY trip_id
+                 {$revenue}
              ) inv ON inv.trip_id = t.id
+             LEFT JOIN ({$bills}) bil ON bil.trip_id = t.id
              LEFT JOIN (
                  SELECT trip_id, SUM(amount) AS cost
                  FROM expenses
@@ -479,7 +503,7 @@ final class ReportData
                 'status' => ['label' => 'Status', 'type' => 'badge'],
                 'revenue' => ['label' => 'Revenue', 'type' => 'money'],
                 'fuel_cost' => ['label' => 'Fuel', 'type' => 'money'],
-                'expense_cost' => ['label' => 'Other cost', 'type' => 'money'],
+                'expense_cost' => ['label' => 'Claims and bills', 'type' => 'money'],
                 'total_cost' => ['label' => 'Total cost', 'type' => 'money'],
                 'margin' => ['label' => 'Margin', 'type' => 'money'],
                 'margin_pct' => ['label' => 'Margin', 'type' => 'percent'],
@@ -530,6 +554,50 @@ final class ReportData
     }
 
     // -------------------------------------------------------------- helpers
+
+    /** Open balances as at the end of the period, in late-ness buckets. */
+    private static function aging(string $side, string $asOf): array
+    {
+        $rows = self::tableExists($side === 'payable' ? 'supplier_bills' : 'invoices') ? Payables::aging($side, $asOf) : [];
+
+        // Totals only mean something when every row is in the same money.
+        $totals = [];
+        if (count(array_unique(array_column($rows, 'currency'))) === 1) {
+            foreach (['current', 'd30', 'd60', 'd90', 'd90plus', 'total'] as $column) {
+                $totals[$column] = array_sum(array_column($rows, $column));
+            }
+        }
+
+        return [
+            'columns' => [
+                'party' => ['label' => $side === 'payable' ? 'Supplier' : 'Customer', 'type' => 'text'],
+                'currency' => ['label' => 'Cur.', 'type' => 'text'],
+                'current' => ['label' => 'Not yet due', 'type' => 'money'],
+                'd30' => ['label' => '1-30 days', 'type' => 'money'],
+                'd60' => ['label' => '31-60 days', 'type' => 'money'],
+                'd90' => ['label' => '61-90 days', 'type' => 'money'],
+                'd90plus' => ['label' => 'Over 90 days', 'type' => 'money'],
+                'total' => ['label' => 'Total owed', 'type' => 'money'],
+            ],
+            'rows' => $rows,
+            'totals' => $totals,
+        ];
+    }
+
+    private static function tableExists(string $table): bool
+    {
+        static $known = [];
+        if (!isset($known[$table])) {
+            try {
+                Database::connection()->query("SELECT 1 FROM {$table} LIMIT 0");
+                $known[$table] = true;
+            } catch (\Throwable) {
+                $known[$table] = false;
+            }
+        }
+
+        return $known[$table];
+    }
 
     private static function rows(string $sql, array $parameters = []): array
     {

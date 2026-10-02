@@ -728,6 +728,72 @@ final class LogisticsData
             }
         }
 
+        // Paying a supplier more than the bill says is the same typing mistake,
+        // and paying a bill nobody approved is how money leaves without a check.
+        if ($key === 'supplier_payments' && $value('bill_id') !== '' && $value('amount') !== '') {
+            $bill = self::db()->prepare('SELECT bill_no, currency, total_amount, status FROM supplier_bills WHERE id = ?');
+            $bill->execute([(int) $value('bill_id')]);
+            $row = $bill->fetch();
+            if ($row !== false) {
+                $paidElsewhere = (float) self::scalar(
+                    'SELECT COALESCE(SUM(amount), 0) FROM supplier_payments WHERE bill_id = ? AND deleted_at IS NULL AND id <> ?',
+                    [(int) $value('bill_id'), (int) ($id ?? 0)]
+                );
+                $balance = round((float) $row['total_amount'] - $paidElsewhere, 2);
+                $amount = (float) str_replace(',', '', $value('amount'));
+                if (!in_array((string) $row['status'], ['approved', 'partially_paid', 'paid'], true)) {
+                    $errors[] = sprintf('Bill %s is %s. Approve it before paying it.', $row['bill_no'], Schema::label((string) $row['status']));
+                } elseif ($amount <= 0) {
+                    $errors[] = 'Amount paid must be more than zero.';
+                } elseif ($amount > $balance + 0.005) {
+                    $errors[] = sprintf('Only %s %s is still owed on %s; this payment of %s is more than that.',
+                        $row['currency'], number_format(max($balance, 0), 2), $row['bill_no'], number_format($amount, 2));
+                }
+            }
+        }
+
+        if ($key === 'supplier_bills') {
+            $billDate = $value('bill_date');
+            $dueDate = $value('due_date');
+            if ($billDate !== '' && $dueDate !== '' && strtotime($dueDate) < strtotime($billDate)) {
+                $errors[] = 'The due date cannot be before the bill date.';
+            }
+        }
+
+        if ($key === 'disbursements' && $value('amount') !== '' && (float) str_replace(',', '', $value('amount')) <= 0) {
+            $errors[] = 'Amount paid must be more than zero.';
+        }
+
+        // A gate pass cannot let out more than is in the bay.
+        if ($key === 'storage_releases' && $value('lot_id') !== '' && $value('quantity') !== '') {
+            $quantity = (float) str_replace(',', '', $value('quantity'));
+            $onHand = Storage::onHand((int) $value('lot_id'), $id);
+            if ($quantity <= 0) {
+                $errors[] = 'Quantity released must be more than zero.';
+            } elseif ($quantity > $onHand + 0.004) {
+                $errors[] = sprintf('Only %s is left in this lot; the gate pass cannot release %s.', rtrim(rtrim(number_format($onHand, 2, '.', ','), '0'), '.'), rtrim(rtrim(number_format($quantity, 2, '.', ','), '0'), '.'));
+            }
+        }
+
+        if ($key === 'storage_lots' && $value('quantity_received') !== '') {
+            $quantity = (float) str_replace(',', '', $value('quantity_received'));
+            $released = $id !== null ? (float) self::scalar('SELECT COALESCE(SUM(quantity), 0) FROM storage_releases WHERE lot_id = ? AND deleted_at IS NULL', [$id]) : 0.0;
+            if ($quantity <= 0) {
+                $errors[] = 'Quantity received must be more than zero.';
+            } elseif ($quantity + 0.004 < $released) {
+                $errors[] = sprintf('%s has already been released from this lot, so it cannot have received less than that.', rtrim(rtrim(number_format($released, 2, '.', ','), '0'), '.'));
+            }
+        }
+
+        if ($key === 'containers') {
+            $out = $value('picked_up_at');
+            foreach (['unloaded_at' => 'unloaded', 'returned_at' => 'returned'] as $field => $word) {
+                if ($out !== '' && $value($field) !== '' && strtotime($value($field)) < strtotime($out)) {
+                    $errors[] = "A container cannot be {$word} before it left the port.";
+                }
+            }
+        }
+
         if ($key === 'rates') {
             $fromDate = $value('effective_from');
             $toDate = $value('effective_to');
@@ -965,6 +1031,54 @@ final class LogisticsData
             }
         }
 
+        if ($key === 'supplier_payments' && !empty($columns['bill_id'])) {
+            $billCurrency = (string) (self::scalar('SELECT currency FROM supplier_bills WHERE id = ?', [(int) $columns['bill_id']]) ?: '');
+            if ($billCurrency !== '') {
+                $columns['currency'] = $billCurrency;
+            }
+        }
+
+        if ($key === 'supplier_bills') {
+            // A due date left blank follows the supplier's terms.
+            if (empty($columns['due_date']) && !empty($columns['bill_date']) && !empty($columns['supplier_id'])) {
+                $terms = (int) (self::scalar('SELECT payment_terms_days FROM suppliers WHERE id = ?', [(int) $columns['supplier_id']]) ?: 30);
+                $columns['due_date'] = date('Y-m-d', (int) strtotime($columns['bill_date'] . " +{$terms} days"));
+            }
+            // Approval and status belong to the buttons.
+            if ($id === null) {
+                $columns['status'] = 'draft';
+            } else {
+                unset($columns['status']);
+            }
+        }
+
+        if ($key === 'storage_lots' && $id === null) {
+            $columns['status'] = 'in_store';
+        }
+
+        if ($key === 'storage_releases' && $id === null) {
+            $columns['authorised_by'] = \current_user_id();
+        }
+
+        // Where a box is follows the dates on its form, so filling in the
+        // empty-return date is enough to close it.
+        if ($key === 'containers') {
+            $columns['status'] = match (true) {
+                !empty($columns['returned_at']) => 'returned',
+                !empty($columns['unloaded_at']) => 'unloaded',
+                default => 'out_full',
+            };
+        }
+
+        if ($key === 'disbursements') {
+            // Whether it has been invoiced follows the invoice, not a dropdown.
+            if ($id === null) {
+                $columns['status'] = 'pending';
+            } else {
+                unset($columns['status'], $columns['invoice_id']);
+            }
+        }
+
         if ($key === 'warehouse') {
             if ($id === null) {
                 $columns['status'] = self::stockStatus((float) ($columns['quantity'] ?? 0), (float) ($columns['minimum_level'] ?? 0));
@@ -1012,7 +1126,7 @@ final class LogisticsData
         $actor = match ($key) {
             'requests' => 'requester_id',
             'expenses' => 'submitted_by',
-            'payments' => 'recorded_by',
+            'payments', 'supplier_payments' => 'recorded_by',
             default => null,
         };
         if ($actor !== null) {
@@ -1216,6 +1330,41 @@ final class LogisticsData
             Posting::tryPost('fuel', $id);
         }
 
+        if ($key === 'supplier_bills') {
+            Payables::recalculateBill($id);
+            Payables::tryPost('supplier_bill', $id);
+        }
+
+        if ($key === 'supplier_payments' && !empty($columns['bill_id'])) {
+            Payables::recalculateBill((int) $columns['bill_id']);
+            Payables::tryPost('supplier_payment', $id);
+            if ((int) ($before['bill_id'] ?? 0) > 0 && (int) $before['bill_id'] !== (int) $columns['bill_id']) {
+                Payables::recalculateBill((int) $before['bill_id']);
+            }
+        }
+
+        if ($key === 'disbursements') {
+            Payables::tryPost('disbursement', $id);
+        }
+
+        if ($key === 'storage_releases' && !empty($columns['lot_id'])) {
+            Storage::recalculate((int) $columns['lot_id']);
+            if ((int) ($before['lot_id'] ?? 0) > 0 && (int) $before['lot_id'] !== (int) $columns['lot_id']) {
+                Storage::recalculate((int) $before['lot_id']);
+            }
+        }
+
+        if ($key === 'storage_lots') {
+            Storage::recalculate($id);
+        }
+
+        if ($key === 'trips') {
+            Journey::syncForTrip($id);
+            if ((int) ($before['journey_id'] ?? 0) > 0 && (int) $before['journey_id'] !== (int) ($columns['journey_id'] ?? 0)) {
+                Journey::sync((int) $before['journey_id']);
+            }
+        }
+
         if ($key === 'payments' && !empty($columns['invoice_id'])) {
             // The payment settles its invoice, and both sides reach the ledger.
             self::recalculateInvoice((int) $columns['invoice_id']);
@@ -1283,6 +1432,13 @@ final class LogisticsData
         $columns = $lines['columns'];
         $db = self::db();
 
+        if ($key === 'bank_statements' && self::scalar('SELECT status FROM bank_statements WHERE id = ?', [$parentId]) === 'reconciled') {
+            throw new \RuntimeException('This statement is reconciled. Reopen it on the reconcile page before changing its lines.');
+        }
+        if ($key === 'supplier_bills' && in_array(self::scalar('SELECT status FROM supplier_bills WHERE id = ?', [$parentId]), ['partially_paid', 'paid', 'cancelled'], true)) {
+            throw new \RuntimeException('Payments have been made on this bill (or it is cancelled), so its lines can no longer change.');
+        }
+
         // Only open a transaction when nobody else already has one, the same way
         // save() does. Without this, saving lines from inside a larger operation
         // fails outright on "there is already an active transaction".
@@ -1308,8 +1464,13 @@ final class LogisticsData
                 $blank = true;
                 foreach ($names as $name) {
                     $raw = trim((string) ($row[$name] ?? ''));
-                    if ($raw !== '') {
+                    // A column with a default (the kind of an invoice line) does
+                    // not make a row real on its own, and is never left empty.
+                    if ($raw !== '' && !isset($columns[$name]['default'])) {
                         $blank = false;
+                    }
+                    if ($raw === '' && isset($columns[$name]['default'])) {
+                        $raw = (string) $columns[$name]['default'];
                     }
                     $values[] = match ($columns[$name]['type']) {
                         'decimal', 'money' => $raw === '' ? 0 : (float) str_replace(',', '', $raw),
@@ -1346,10 +1507,22 @@ final class LogisticsData
 
         if ($key === 'invoices') {
             self::recalculateInvoice($parentId);
+            // An issued invoice whose lines change is reposted, so the ledger
+            // shows the revenue and disbursement split the invoice now shows.
+            Posting::tryPost('invoice', $parentId);
         }
 
         if ($key === 'cheques') {
             Cheque::recalculate($parentId);
+        }
+
+        if ($key === 'supplier_bills') {
+            Payables::recalculateBill($parentId);
+            Payables::tryPost('supplier_bill', $parentId);
+        }
+
+        if ($key === 'maintenance') {
+            Workshop::afterLines($parentId);
         }
 
         if ($key === 'crossings') {
@@ -1383,6 +1556,10 @@ final class LogisticsData
         $subtotal = (float) self::scalar('SELECT COALESCE(SUM(line_total), 0) FROM invoice_lines WHERE invoice_id = ?', [$invoiceId]);
         $paid = (float) self::scalar('SELECT COALESCE(SUM(amount), 0) FROM payments WHERE invoice_id = ? AND deleted_at IS NULL', [$invoiceId]);
 
+        // Duty and port charges recharged at cost are not our sale, so VAT is
+        // charged on the service lines only.
+        $disbursed = self::invoiceDisbursed($invoiceId);
+
         $invoice = $db->prepare('SELECT tax_rate, status, due_date FROM invoices WHERE id = ?');
         $invoice->execute([$invoiceId]);
         $row = $invoice->fetch();
@@ -1391,7 +1568,7 @@ final class LogisticsData
         }
 
         $taxRate = (float) $row['tax_rate'];
-        $tax = round($subtotal * ($taxRate / 100), 2);
+        $tax = round(max(0.0, $subtotal - $disbursed) * ($taxRate / 100), 2);
         $total = round($subtotal + $tax, 2);
 
         $status = (string) $row['status'];
@@ -1406,6 +1583,22 @@ final class LogisticsData
 
         $update = $db->prepare('UPDATE invoices SET subtotal = ?, tax_amount = ?, total_amount = ?, amount_paid = ?, status = ? WHERE id = ?');
         $update->execute([$subtotal, $tax, $total, $paid, $status, $invoiceId]);
+
+        Payables::syncInvoiceDisbursements($invoiceId);
+    }
+
+    /** The part of an invoice that is disbursements recharged at cost. */
+    public static function invoiceDisbursed(int $invoiceId): float
+    {
+        try {
+            return round((float) self::scalar(
+                "SELECT COALESCE(SUM(line_total), 0) FROM invoice_lines WHERE invoice_id = ? AND line_kind = 'disbursement'",
+                [$invoiceId]
+            ), 2);
+        } catch (\Throwable) {
+            // Before the column exists every line is a service line.
+            return 0.0;
+        }
     }
 
     /**
@@ -1437,6 +1630,16 @@ final class LogisticsData
             }
         }
 
+        if ($key === 'supplier_bills' && (float) ($record['amount_paid'] ?? 0) > 0) {
+            throw new \RuntimeException('Part of this bill has been paid. Delete the supplier payments first.');
+        }
+        if ($key === 'disbursements' && in_array((string) ($record['status'] ?? ''), ['invoiced', 'recovered'], true)) {
+            throw new \RuntimeException('This disbursement is on an invoice. Take it off the invoice lines first.');
+        }
+        if ($key === 'storage_lots' && (float) ($record['quantity_released'] ?? 0) > 0) {
+            throw new \RuntimeException('Goods have already been released from this lot against gate passes. Delete those first.');
+        }
+
         if (empty($module['soft_delete'])) {
             $itemId = $key === 'movements' ? (int) $record['item_id'] : null;
             self::db()->prepare("DELETE FROM {$module['table']} WHERE id = ?")->execute([$id]);
@@ -1453,6 +1656,23 @@ final class LogisticsData
             if ($key === 'payments' && !empty($record['invoice_id'])) {
                 self::recalculateInvoice((int) $record['invoice_id']);
             }
+            if ($key === 'invoices') {
+                Payables::syncInvoiceDisbursements($id);
+            }
+        }
+
+        if (in_array($key, ['supplier_bills', 'supplier_payments', 'disbursements'], true)) {
+            Posting::unpost(rtrim($key, 's'), $id);
+            if ($key === 'disbursements') {
+                Posting::unpost('disbursement_wo', $id);
+            }
+            if ($key === 'supplier_payments' && !empty($record['bill_id'])) {
+                Payables::recalculateBill((int) $record['bill_id']);
+            }
+        }
+
+        if ($key === 'storage_releases' && !empty($record['lot_id'])) {
+            Storage::recalculate((int) $record['lot_id']);
         }
 
         if ($key === 'lookups') {
@@ -1653,6 +1873,12 @@ final class LogisticsData
         'border_posts' => 'post_name',
         'border_crossings' => 'reference',
         'gl_cheque_books' => 'id',
+        'supplier_bills' => 'bill_no',
+        'disbursements' => 'disbursement_code',
+        'purchase_requests' => 'request_code',
+        'maintenance_orders' => 'work_order_code',
+        'storage_lots' => 'lot_code',
+        'journeys' => 'journey_code',
     ];
 
     private static function relationAllowed(string $table, string $column): bool

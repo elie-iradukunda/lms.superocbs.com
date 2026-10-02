@@ -163,6 +163,13 @@ if (!empty($record['rejection_reason'])) {
               return false;
           }
       }
+      // A button that only makes sense when a field is filled in, such as
+      // the handover on a trip that is a leg of a journey.
+      foreach ($link['when_set'] ?? [] as $field) {
+          if (empty($record[$field])) {
+              return false;
+          }
+      }
       return role_can($link['permission'] ?? '', $link['ability'] ?? 'view');
   }));
   ?>
@@ -348,7 +355,7 @@ if (!empty($record['rejection_reason'])) {
                               <?php else: ?>
                                 <input
                                   class="form-control form-control-sm <?= in_array($spec['type'], ['decimal', 'money'], true) ? 'lms-line-number' : '' ?>"
-                                  type="<?= in_array($spec['type'], ['decimal', 'money'], true) ? 'number' : ($spec['type'] === 'datetime' ? 'datetime-local' : 'text') ?>"
+                                  type="<?= in_array($spec['type'], ['decimal', 'money'], true) ? 'number' : ($spec['type'] === 'datetime' ? 'datetime-local' : ($spec['type'] === 'date' ? 'date' : 'text')) ?>"
                                   <?= in_array($spec['type'], ['decimal', 'money'], true) ? 'step="0.01"' : '' ?>
                                   name="lines[<?= $index ?>][<?= e($column) ?>]"
                                   value="<?= e($spec['type'] === 'datetime' && $lineValue !== '' ? str_replace(' ', 'T', substr($lineValue, 0, 16)) : $lineValue) ?>">

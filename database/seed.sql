@@ -83,6 +83,18 @@ ON DUPLICATE KEY UPDATE
     last_login_at = VALUES(last_login_at);
 
 INSERT INTO users (role_id, full_name, email, password_hash, phone, department, status, last_login_at)
+SELECT id, 'Patrick Habimana', 'patrick.workshop@itec.rw', '$2y$10$xT3CpwhBWfjZdDjM1qVKleYlvscj7OR0UTKfa2gCdgF4EqHt67ea6', '+250 785 330 912', 'Workshop', 'active', '2026-09-16 08:10:00'
+FROM roles WHERE role_key = 'workshop'
+ON DUPLICATE KEY UPDATE
+    role_id = VALUES(role_id),
+    full_name = VALUES(full_name),
+    password_hash = VALUES(password_hash),
+    phone = VALUES(phone),
+    department = VALUES(department),
+    status = VALUES(status),
+    last_login_at = VALUES(last_login_at);
+
+INSERT INTO users (role_id, full_name, email, password_hash, phone, department, status, last_login_at)
 SELECT id, 'Emmanuel Safari', 'emmanuel@itec.rw', '$2y$10$xT3CpwhBWfjZdDjM1qVKleYlvscj7OR0UTKfa2gCdgF4EqHt67ea6', '+250 788 705 881', 'Finance', 'active', '2026-09-15 11:05:00'
 FROM roles WHERE role_key = 'finance'
 ON DUPLICATE KEY UPDATE

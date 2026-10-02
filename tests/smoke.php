@@ -24,7 +24,7 @@ try {
     $test->assert($admin !== null && password_verify('password', $admin['password_hash']), 'the seeded admin password verifies');
 
     $accounts = demo_accounts();
-    $test->same(7, count($accounts), 'all seven seeded roles have an active login');
+    $test->same(count(role_definitions()), count($accounts), 'every seeded role has an active login');
     $test->same('aline@itec.rw', $accounts['logistics_manager']['email'] ?? '', 'the login list reads its email from the database');
 
     test_sign_in($accounts['super_admin'], 'super_admin', 1);

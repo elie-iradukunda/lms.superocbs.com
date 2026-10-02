@@ -124,11 +124,18 @@ final class Posting
             return null;
         }
 
+        // Disbursements recharged at cost clear what we paid out for the
+        // customer; only the rest is revenue.
+        $disbursed = min($subtotal, LogisticsData::invoiceDisbursed($invoiceId));
+
         $who = $invoice['customer_name'] ?? 'customer';
         $lines = [
             ['account' => self::RECEIVABLE, 'debit' => $total, 'description' => $who],
-            ['account' => self::REVENUE, 'credit' => $subtotal, 'description' => 'Freight invoiced to ' . $who],
+            ['account' => self::REVENUE, 'credit' => round($subtotal - $disbursed, 2), 'description' => 'Freight invoiced to ' . $who],
         ];
+        if ($disbursed > 0) {
+            $lines[] = ['account' => Payables::RECOVERABLE, 'credit' => $disbursed, 'description' => 'Disbursements recharged at cost'];
+        }
         if ($tax > 0) {
             $lines[] = ['account' => self::VAT_PAYABLE, 'credit' => $tax, 'description' => 'VAT on ' . $invoice['invoice_number']];
         }
@@ -293,13 +300,23 @@ final class Posting
 
         $provider = (string) ($order['provider_name'] ?? 'workshop');
 
+        // Parts taken off our own shelves were already paid for when they were
+        // bought: they leave Inventory. Only the rest is owed to somebody.
+        $fromStock = min($amount, Workshop::stockCost($orderId));
+        $lines = [
+            ['account' => self::MAINTENANCE, 'debit' => $amount, 'description' => (string) $order['service_name'] . ' on ' . (string) ($order['plate_number'] ?? '')],
+        ];
+        if ($fromStock > 0) {
+            $lines[] = ['account' => self::INVENTORY, 'credit' => $fromStock, 'description' => 'Parts from our store'];
+        }
+        if ($amount - $fromStock > 0.004) {
+            $lines[] = ['account' => self::PAYABLE, 'credit' => round($amount - $fromStock, 2), 'description' => $provider];
+        }
+
         return Ledger::post(
             date('Y-m-d', (int) strtotime((string) ($order['completed_at'] ?? $order['due_date']))),
             sprintf('Work order %s - %s', $order['work_order_code'], (string) $order['service_name']),
-            [
-                ['account' => self::MAINTENANCE, 'debit' => $amount, 'description' => (string) $order['service_name'] . ' on ' . (string) ($order['plate_number'] ?? '')],
-                ['account' => self::PAYABLE, 'credit' => $amount, 'description' => $provider],
-            ],
+            $lines,
             'maintenance',
             $orderId,
             (string) $order['work_order_code'],
@@ -367,6 +384,9 @@ final class Posting
                 'fuel' => self::fuel($id),
                 'maintenance' => self::maintenance($id),
                 'purchase' => self::purchase($id),
+                'supplier_bill' => Payables::postBill($id),
+                'supplier_payment' => Payables::postSupplierPayment($id),
+                'disbursement' => Payables::postDisbursement($id),
                 default => null,
             };
         } catch (\Throwable $exception) {
@@ -407,11 +427,17 @@ final class Posting
             'fuel' => 'SELECT id FROM fuel_records WHERE deleted_at IS NULL',
             'maintenance' => "SELECT id FROM maintenance_orders WHERE deleted_at IS NULL AND status = 'completed'",
             'purchase' => "SELECT id FROM purchase_requests WHERE deleted_at IS NULL AND status = 'received'",
-        ];
+        ] + Payables::postingSources();
 
         foreach ($sources as $kind => $sql) {
             $posted = 0;
-            foreach (self::db()->query($sql)->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            try {
+                $ids = self::db()->query($sql)->fetchAll(PDO::FETCH_COLUMN);
+            } catch (\Throwable) {
+                // A table from a migration not yet applied: nothing to post.
+                continue;
+            }
+            foreach ($ids as $id) {
                 try {
                     if (match ($kind) {
                         'invoice' => self::invoice((int) $id),
@@ -420,6 +446,9 @@ final class Posting
                         'fuel' => self::fuel((int) $id),
                         'maintenance' => self::maintenance((int) $id),
                         'purchase' => self::purchase((int) $id),
+                        'supplier_bill' => Payables::postBill((int) $id),
+                        'supplier_payment' => Payables::postSupplierPayment((int) $id),
+                        'disbursement' => Payables::postDisbursement((int) $id),
                     } !== null) {
                         $posted++;
                     }

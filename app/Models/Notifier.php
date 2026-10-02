@@ -249,6 +249,11 @@ final class Notifier
                     'danger'
                 );
             }
+
+            // A box out past its free days costs money every day it is not back.
+            Containers::alerts(static function (string $key, string $title, string $message, string $severity): void {
+                self::once($key, ['logistics_manager', 'super_admin', 'finance'], $title, $message, 'containers', $severity);
+            });
         } catch (\Throwable) {
             // Alerts are a convenience; a failure here must not block the dashboard.
         }

@@ -73,6 +73,17 @@ final class Workflow
             'present' => ['from' => ['issued'], 'to' => 'presented'],
             'void' => ['from' => ['draft', 'issued'], 'to' => 'void', 'needs_reason' => true],
         ],
+        'supplier_bills' => [
+            'approve' => ['from' => ['draft'], 'to' => 'approved'],
+            'reject' => ['from' => ['draft', 'approved'], 'to' => 'cancelled', 'needs_reason' => true],
+        ],
+        'disbursements' => [
+            'write_off' => ['from' => ['pending'], 'to' => 'written_off', 'needs_reason' => true],
+        ],
+        'containers' => [
+            'unload' => ['from' => ['out_full'], 'to' => 'unloaded'],
+            'return' => ['from' => ['out_full', 'unloaded'], 'to' => 'returned'],
+        ],
     ];
 
     private const STATUS_COLUMN = [
@@ -85,6 +96,9 @@ final class Workflow
         'invoices' => ['invoices', 'status'],
         'cheques' => ['gl_cheques', 'status'],
         'crossings' => ['border_crossings', 'status'],
+        'supplier_bills' => ['supplier_bills', 'status'],
+        'disbursements' => ['disbursements', 'status'],
+        'containers' => ['containers', 'status'],
     ];
 
     /** Actions available for a record right now, given its status. */
@@ -175,6 +189,11 @@ final class Workflow
             ['from' => $current, 'to' => $rule['to']]
         );
 
+        if ($module === 'trips') {
+            // A leg moving moves the journey it belongs to.
+            Journey::syncForTrip($id);
+        }
+
         return ['ok' => true, 'message' => $message];
     }
 
@@ -205,6 +224,21 @@ final class Workflow
 
         if ($module === 'crossings') {
             return BorderCrossing::guard($action, $record);
+        }
+
+        if ($module === 'maintenance' && $action === 'approve') {
+            return Workshop::guardComplete((int) $record['id']);
+        }
+
+        if ($module === 'trips' && $action === 'complete') {
+            $handover = Journey::guardComplete($record);
+            if ($handover !== null) {
+                return $handover;
+            }
+        }
+
+        if ($module === 'supplier_bills' || $module === 'disbursements') {
+            return Payables::guard($module, $action, $record);
         }
 
         return null;
@@ -313,6 +347,8 @@ final class Workflow
 
             $module === 'cheques' => Cheque::applied($action, $record, $reason, $actor),
             $module === 'crossings' => BorderCrossing::applied($action, $record, $reason, $actor),
+            $module === 'supplier_bills', $module === 'disbursements' => Payables::applied($module, $action, $record, $reason, $actor),
+            $module === 'containers' => Containers::applied($action, $record, $reason, $actor),
 
             $module === 'deliveries' && $action === 'drop' => self::dropDelivery($db, $record, $code),
             $module === 'deliveries' && $action === 'complete' => self::completeDelivery($db, $record, $code, $actor),
@@ -897,6 +933,11 @@ final class Workflow
             $db->prepare("UPDATE vehicles SET status = 'available' WHERE id = ? AND status = 'maintenance'")->execute([(int) $order['vehicle_id']]);
         }
 
+        // Parts from our own shelves leave the store now, and the truck takes
+        // the odometer and next service the mechanic wrote on the card.
+        $issued = Workshop::issueStock($id, $code);
+        Workshop::updateVehicle($order);
+
         $final = $db->prepare('SELECT actual_cost FROM maintenance_orders WHERE id = ?');
         $final->execute([$id]);
         $cost = (float) ($final->fetchColumn() ?: 0);
@@ -908,7 +949,8 @@ final class Workflow
             ? 'Cost matched the estimate.'
             : sprintf('%s %s the estimate.', Settings::money(abs($variance)), $variance > 0 ? 'over' : 'under');
 
-        return sprintf('Work order %s completed at %s. %s', $code, Settings::money($cost), $note);
+        return sprintf('Work order %s completed at %s. %s%s', $code, Settings::money($cost), $note,
+            $issued > 0 ? sprintf(' %d part line%s taken out of stock.', $issued, $issued === 1 ? '' : 's') : '');
     }
 
     private static function issueInvoice(PDO $db, array $invoice, string $code, ?int $actor): string
@@ -1032,6 +1074,10 @@ final class Workflow
     {
         Posting::unpost('invoice', $id);
 
+        // Duty paid for the customer is still owed by them: it goes back on the
+        // list to be put on the replacement invoice.
+        Payables::syncInvoiceDisbursements($id);
+
         return sprintf('Invoice %s was cancelled and its ledger entry removed.', $code);
     }
 
@@ -1067,7 +1113,7 @@ final class Workflow
 
     private static function record(string $table, int $id): ?array
     {
-        $allowed = ['transport_requests', 'trips', 'deliveries', 'expenses', 'purchase_requests', 'maintenance_orders', 'invoices', 'vehicles', 'drivers', 'gl_cheques', 'border_crossings'];
+        $allowed = ['transport_requests', 'trips', 'deliveries', 'expenses', 'purchase_requests', 'maintenance_orders', 'invoices', 'vehicles', 'drivers', 'gl_cheques', 'border_crossings', 'supplier_bills', 'disbursements', 'containers'];
         if (!in_array($table, $allowed, true)) {
             throw new \InvalidArgumentException('Unknown workflow table.');
         }
