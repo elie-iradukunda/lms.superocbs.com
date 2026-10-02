@@ -212,14 +212,13 @@ final class BorderCrossing
             return 0.0;
         }
 
-        $rate = (float) ($crossing['exchange_rate'] ?? 1);
-        $rate = $rate > 0 ? $rate : 1.0;
-
-        // Charges of the same kind share an account, so they share a line.
+        // Charges are booked exactly as paid, in the crossing's own currency:
+        // KES at Malaba go into the KES books, RWF at Gatuna into the RWF books.
+        // Nothing is converted.
         $byAccount = [];
         foreach ($charges as $charge) {
             $code = self::CHARGE_ACCOUNTS[(string) $charge['charge_type']] ?? self::FALLBACK_ACCOUNT;
-            $byAccount[$code] = round(($byAccount[$code] ?? 0) + (float) $charge['amount'] * $rate, 2);
+            $byAccount[$code] = round(($byAccount[$code] ?? 0) + (float) $charge['amount'], 2);
         }
 
         $total = round(array_sum($byAccount), 2);
@@ -248,13 +247,14 @@ final class BorderCrossing
             'crossing',
             $id,
             (string) $crossing['reference'],
-            (string) ($crossing['declaration_no'] ?? '')
+            (string) ($crossing['declaration_no'] ?? ''),
+            strtoupper(trim((string) ($crossing['currency'] ?? ''))) ?: Currency::base()
         );
 
         return $total;
     }
 
-    /** Keeps the charge total and its converted value on the crossing itself. */
+    /** Keeps the charge total on the crossing itself, in its own currency. */
     public static function recalculate(int $id): float
     {
         $crossing = self::load($id);
@@ -267,12 +267,10 @@ final class BorderCrossing
             self::charges($id)
         )), 2);
 
-        $date = $crossing['cleared_at'] ?? ($crossing['arrived_at'] ?? date('Y-m-d'));
-        $converted = Currency::convert($total, (string) $crossing['currency'], (string) $date);
-
+        // No conversion: the total stays in the currency the charges were paid in.
         Database::connection()
-            ->prepare('UPDATE border_crossings SET charges_total = ?, exchange_rate = ?, base_amount = ? WHERE id = ?')
-            ->execute([$total, $converted['rate'], $converted['base'], $id]);
+            ->prepare('UPDATE border_crossings SET charges_total = ?, exchange_rate = 1, base_amount = ? WHERE id = ?')
+            ->execute([$total, $total, $id]);
 
         return $total;
     }

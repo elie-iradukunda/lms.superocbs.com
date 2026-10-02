@@ -98,7 +98,6 @@ final class Permission
         'settings' => ['view', 'edit'],
         'email' => ['view', 'edit'],
         'journal' => ['view', 'create', 'edit', 'approve'],
-        'currency_rates' => [],
     ];
 
     /**

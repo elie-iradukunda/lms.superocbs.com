@@ -390,6 +390,44 @@ body.dark{--lms-line:#3a4149;--lms-muted:#a8b2bb;--lms-ink:#e7ecf0;--lms-surface
   .lms-photo-row { flex-direction: column; align-items: flex-start; }
 }
 
+/* --- driver: my trips and papers -------------------------------------------- */
+.lms-mt-tabs .nav-link{font-weight:600;border-radius:999px;padding:.45rem 1rem;margin-right:.4rem}
+.lms-mt-tabs .nav-link:not(.active){background:#fff;border:1px solid var(--lms-line)}
+body.dark .lms-mt-tabs .nav-link:not(.active){background:#2b3035;border-color:#3d434a}
+.lms-mt-trip{margin-bottom:18px;overflow:hidden}
+.lms-mt-live{border-left:4px solid var(--lms-accent)}
+.lms-mt-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;padding:18px 20px 12px}
+.lms-mt-ref{font-size:1.15rem;font-weight:800}
+.lms-mt-ref a{color:inherit}
+.lms-mt-route{font-size:1.05rem;font-weight:600;margin-top:4px}
+.lms-mt-meta{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:6px;color:var(--lms-muted);font-size:.85rem}
+.lms-mt-meta .fe{margin-right:3px}
+.lms-mt-actions{display:flex;gap:8px;flex-wrap:wrap}
+.lms-mt-body{padding:4px 20px 18px}
+.lms-mt-block{border-top:1px solid var(--lms-line);padding-top:14px;margin-top:14px}
+.lms-mt-block h4{font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--lms-muted);font-weight:700;margin:0 0 10px}
+.lms-mt-block h4 .fe{margin-right:4px}
+.lms-mt-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px 18px;margin-bottom:10px}
+.lms-mt-facts span{display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--lms-muted)}
+.lms-mt-facts b{font-weight:600}
+.lms-mt-doc{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--lms-line)}
+.lms-mt-doc:last-child{border-bottom:0}
+.lms-mt-doc-name span{display:block;font-size:.82rem;color:var(--lms-muted)}
+.lms-mt-doc-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.lms-mt-stops{list-style:none;margin:0;padding:0 0 0 18px;border-left:2px solid var(--lms-line)}
+.lms-mt-stops li{position:relative;padding:0 0 12px 12px}
+.lms-mt-stops li::before{content:"";position:absolute;left:-26px;top:4px;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid #adb5bd}
+.lms-mt-stops li.is-completed::before,.lms-mt-stops li.is-arrived::before{background:#2f855a;border-color:#2f855a}
+.lms-mt-stops li.is-failed::before{border-color:#c53030}
+body.dark .lms-mt-stops li::before{background:#2b3035}
+@media (max-width:575.98px){
+  .lms-mt-head{padding:14px}
+  .lms-mt-body{padding:4px 14px 14px}
+  .lms-mt-actions,.lms-mt-actions .btn{width:100%}
+  .lms-mt-doc{flex-direction:column;align-items:flex-start}
+  .lms-mt-tabs .nav-link{padding:.4rem .7rem;font-size:.85rem}
+}
+
 /* --- on a phone ------------------------------------------------------------
    The same website, used one-handed: fields that do not zoom the page when
    tapped, buttons that wrap instead of running off the screen, tables that

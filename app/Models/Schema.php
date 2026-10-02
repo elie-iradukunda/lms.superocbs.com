@@ -1430,6 +1430,16 @@ final class Schema
                     'recorded_by' => ['label' => 'Recorded by', 'type' => 'relation', 'width' => 4, 'readonly' => true, 'readonly_note' => 'you', 'relation' => ['table' => 'users', 'label' => 'full_name', 'where' => 'deleted_at IS NULL'], 'help' => 'Whoever is signed in when the payment is entered. It is recorded, not chosen.'],
                     'notes' => ['label' => 'Notes', 'type' => 'textarea', 'width' => 12],
                 ],
+                'related' => [
+                    self::moneyMovement('payments', "SELECT p.id, CONCAT('Customer: ', c.customer_name) AS from_side, " . self::methodAccountSql('pm') . " AS to_side,
+                                   CONCAT(p.currency, ' ', FORMAT(p.amount, 2)) AS amount_text, CONCAT(a.account_code, ' ', a.account_name) AS ledger, p.reference
+                              FROM payments p
+                              INNER JOIN invoices i ON i.id = p.invoice_id
+                              LEFT JOIN customers c ON c.id = i.customer_id
+                              LEFT JOIN payment_methods pm ON pm.method_key = p.method
+                              LEFT JOIN gl_accounts a ON a.id = pm.gl_account_id
+                             WHERE p.id = :id"),
+                ],
             ],
 
             'invoices' => [
@@ -1630,6 +1640,17 @@ final class Schema
                     'approve' => ['label' => 'Approve expense', 'to' => 'approved', 'from' => ['pending'], 'tone' => 'success'],
                     'reject' => ['label' => 'Reject', 'to' => 'rejected', 'from' => ['pending'], 'tone' => 'danger', 'reason' => true],
                 ],
+                'related' => [
+                    self::moneyMovement('expenses', "SELECT e.id, " . self::methodAccountSql('pm') . " AS from_side,
+                                   CONCAT(e.category, COALESCE(CONCAT(', ', v.plate_number), ''), COALESCE(CONCAT(', trip ', t.reference_code), '')) AS to_side,
+                                   CONCAT(e.currency, ' ', FORMAT(e.amount, 2)) AS amount_text, CONCAT(a.account_code, ' ', a.account_name) AS ledger, e.reference_code AS reference
+                              FROM expenses e
+                              LEFT JOIN vehicles v ON v.id = e.vehicle_id
+                              LEFT JOIN trips t ON t.id = e.trip_id
+                              LEFT JOIN payment_methods pm ON pm.method_key = e.payment_method
+                              LEFT JOIN gl_accounts a ON a.id = pm.gl_account_id
+                             WHERE e.id = :id"),
+                ],
             ],
 
             'supplier_bills' => [
@@ -1772,6 +1793,16 @@ final class Schema
                     'recorded_by' => ['label' => 'Recorded by', 'type' => 'relation', 'width' => 4, 'readonly' => true, 'readonly_note' => 'you', 'relation' => ['table' => 'users', 'label' => 'full_name', 'where' => 'deleted_at IS NULL']],
                     'notes' => ['label' => 'Notes', 'type' => 'textarea', 'width' => 12],
                 ],
+                'related' => [
+                    self::moneyMovement('supplier_payments', "SELECT sp.id, " . self::methodAccountSql('pm') . " AS from_side, CONCAT('Supplier: ', s.supplier_name, ' (bill ', b.bill_no, ')') AS to_side,
+                                   CONCAT(sp.currency, ' ', FORMAT(sp.amount, 2)) AS amount_text, CONCAT(a.account_code, ' ', a.account_name) AS ledger, sp.reference
+                              FROM supplier_payments sp
+                              INNER JOIN supplier_bills b ON b.id = sp.bill_id
+                              LEFT JOIN suppliers s ON s.id = b.supplier_id
+                              LEFT JOIN payment_methods pm ON pm.method_key = sp.method
+                              LEFT JOIN gl_accounts a ON a.id = pm.gl_account_id
+                             WHERE sp.id = :id"),
+                ],
             ],
 
             'disbursements' => [
@@ -1830,6 +1861,17 @@ final class Schema
                 'actions' => [
                     'write_off' => ['label' => 'Write off', 'to' => 'written_off', 'from' => ['pending'], 'tone' => 'danger', 'reason' => true],
                 ],
+                'related' => [
+                    self::moneyMovement('disbursements', "SELECT d.id, " . self::methodAccountSql('pm') . " AS from_side,
+                                   CONCAT(COALESCE(s.supplier_name, 'Paid out'), ', for ', c.customer_name) AS to_side,
+                                   CONCAT(d.currency, ' ', FORMAT(d.amount, 2)) AS amount_text, CONCAT(a.account_code, ' ', a.account_name) AS ledger, d.reference
+                              FROM disbursements d
+                              LEFT JOIN suppliers s ON s.id = d.supplier_id
+                              LEFT JOIN customers c ON c.id = d.customer_id
+                              LEFT JOIN payment_methods pm ON pm.method_key = d.method
+                              LEFT JOIN gl_accounts a ON a.id = pm.gl_account_id
+                             WHERE d.id = :id"),
+                ],
             ],
 
             'bank_statements' => [
@@ -1843,8 +1885,8 @@ final class Schema
                 'alias' => 'bs',
                 'code' => 'statement_code',
                 'order' => 'bs.period_to DESC, bs.id DESC',
-                'joins' => 'LEFT JOIN gl_accounts a ON a.id = bs.account_id',
-                'select' => ['bs.id', 'bs.statement_code', 'a.account_name AS account', 'bs.currency', 'bs.period_from', 'bs.period_to', 'bs.closing_balance', 'bs.status',
+                'joins' => 'LEFT JOIN gl_accounts a ON a.id = bs.account_id LEFT JOIN payment_methods bpm ON bpm.id = bs.payment_method_id',
+                'select' => ['bs.id', 'bs.statement_code', "COALESCE(CONCAT_WS(' · ', bpm.provider_name, IF(bpm.account_number IS NULL OR bpm.account_number = '', NULL, CONCAT('No. ', bpm.account_number))), a.account_name) AS account", 'bs.currency', 'bs.period_from', 'bs.period_to', 'bs.closing_balance', 'bs.status',
                              '(SELECT COUNT(*) FROM bank_statement_lines l WHERE l.statement_id = bs.id) AS line_count',
                              '(SELECT COUNT(*) FROM bank_statement_lines l WHERE l.statement_id = bs.id AND l.matched_entry_id IS NULL) AS unmatched'],
                 'search' => ['bs.statement_code', 'a.account_name'],
@@ -1861,13 +1903,16 @@ final class Schema
                 ],
                 'filters' => ['status' => ['label' => 'Status', 'column' => 'bs.status', 'options' => ['open' => 'Open', 'reconciled' => 'Reconciled']]],
                 'sections' => [
-                    ['title' => 'Statement', 'icon' => 'file-text', 'hint' => 'Copy the figures from the top of the bank statement.', 'fields' => ['statement_code', 'account_id', 'currency', 'period_from', 'period_to', 'opening_balance', 'closing_balance']],
+                    ['title' => 'Statement', 'icon' => 'file-text', 'hint' => 'Choose the bank account the statement is for (set up under Payment methods, with its bank, number and currency), then copy the figures from the top of the statement.', 'fields' => ['statement_code', 'payment_method_id', 'account_id', 'currency', 'period_from', 'period_to', 'opening_balance', 'closing_balance']],
                     ['title' => 'Paper', 'icon' => 'paperclip', 'fields' => ['statement_file', 'status', 'notes']],
                 ],
                 'fields' => [
                     'statement_code' => ['label' => 'Reference', 'type' => 'text', 'required' => true, 'width' => 4, 'auto' => 'BST'],
-                    'account_id' => ['label' => 'Bank account', 'type' => 'relation', 'required' => true, 'width' => 4, 'relation' => ['table' => 'gl_accounts', 'label' => 'account_name', 'where' => 'deleted_at IS NULL AND is_bank = 1 AND is_active = 1']],
-                    'currency' => ['label' => 'Currency', 'type' => 'select', 'width' => 4, 'options' => Currency::options(), 'help' => 'The currency the account is held in. Only entries in this currency are matched.'],
+                    'payment_method_id' => ['label' => 'Bank account', 'type' => 'relation', 'required' => true, 'width' => 4,
+                        'relation' => ['table' => 'payment_methods', 'label' => 'method_name', 'where' => 'deleted_at IS NULL AND gl_account_id IN (SELECT id FROM gl_accounts WHERE is_bank = 1 AND deleted_at IS NULL)'],
+                        'help' => 'The account as set up under Payment methods. Its ledger account and currency come with it.'],
+                    'account_id' => ['label' => 'Ledger account', 'type' => 'relation', 'width' => 4, 'readonly' => true, 'readonly_note' => 'from the bank account', 'relation' => ['table' => 'gl_accounts', 'label' => 'account_name', 'where' => 'deleted_at IS NULL AND is_bank = 1']],
+                    'currency' => ['label' => 'Currency', 'type' => 'select', 'width' => 4, 'options' => Currency::options(), 'help' => 'Taken from the bank account when it has one. Only entries in this currency are matched.'],
                     'period_from' => ['label' => 'From', 'type' => 'date', 'required' => true, 'width' => 3],
                     'period_to' => ['label' => 'To', 'type' => 'date', 'required' => true, 'width' => 3],
                     'opening_balance' => ['label' => 'Opening balance', 'type' => 'money', 'width' => 3],
@@ -1887,6 +1932,16 @@ final class Schema
                         'reference' => ['label' => 'Reference', 'type' => 'text'],
                         'amount' => ['label' => 'Amount', 'type' => 'money'],
                     ],
+                ],
+                'related' => [
+                    ['title' => 'The bank account', 'icon' => 'credit-card', 'permission' => 'bank_statements',
+                     'sql' => "SELECT bs.id, pm.method_name, pm.provider_name, pm.branch_name, pm.account_name AS holder, pm.account_number, pm.swift_code, COALESCE(pm.currency, bs.currency) AS currency, CONCAT(a.account_code, ' ', a.account_name) AS ledger
+                                 FROM bank_statements bs
+                                 LEFT JOIN payment_methods pm ON pm.id = bs.payment_method_id
+                                 LEFT JOIN gl_accounts a ON a.id = bs.account_id
+                                WHERE bs.id = :id",
+                     'columns' => ['provider_name' => 'Bank', 'branch_name' => 'Branch', 'account_number' => 'Account number', 'holder' => 'In the name of', 'swift_code' => 'SWIFT', 'currency' => 'Currency', 'ledger' => 'Ledger account', 'method_name' => 'Payment method'],
+                     'empty' => 'Choose the bank account.'],
                 ],
                 'links' => [
                     ['label' => 'Reconcile', 'icon' => 'check-square', 'tone' => 'primary',
@@ -2591,7 +2646,7 @@ final class Schema
                 'singular' => 'Currency',
                 'kicker' => 'Cross-border',
                 'icon' => 'globe',
-                'description' => 'The money this company handles. One of them is the base: every report and the whole ledger are in that one, and everything else is converted to it at the rate of the day it was spent or charged.',
+                'description' => 'The money this company handles. Money is recorded exactly as it was paid, in its own currency, and never converted: each currency keeps its own books. The base currency is the one pages open in first.',
                 'button' => 'Add currency',
                 'table' => 'currencies',
                 'alias' => 'cu',
@@ -2630,21 +2685,23 @@ final class Schema
                 'singular' => 'Payment method',
                 'kicker' => 'Money in and out',
                 'icon' => 'credit-card',
-                'description' => 'The ways this company takes and makes payments, and the account in the chart of accounts each one moves. What you set here is what the payment forms offer, where the ledger posts the money, and what a customer is told on an invoice.',
+                'description' => 'Every account the company pays from and is paid into, with all its details: bank, branch, account number, the name it is held in, SWIFT and currency. Make one method per real account — "Bank of Kigali – RWF", "Bank of Kigali – USD", "MTN MoMo pay code". What you set here is what the payment forms offer, which account the ledger moves, what a customer is told on an invoice, and what every payment shows as where the money went.',
                 'button' => 'Add payment method',
                 'table' => 'payment_methods',
                 'alias' => 'pm',
                 'code' => 'method_name',
                 'order' => 'pm.sort_order, pm.method_name',
                 'joins' => 'LEFT JOIN gl_accounts ga ON ga.id = pm.gl_account_id',
-                'select' => ['pm.id', 'pm.method_key', 'pm.method_name', 'ga.account_name AS account', 'ga.account_code', 'pm.provider_name', 'pm.account_number', 'pm.direction', 'pm.show_on_invoice', 'pm.is_active', 'pm.sort_order'],
+                'select' => ['pm.id', 'pm.method_key', 'pm.method_name', 'ga.account_name AS account', 'ga.account_code', 'pm.provider_name', 'pm.branch_name', 'pm.account_name AS holder', 'pm.account_number', 'pm.currency', 'pm.direction', 'pm.show_on_invoice', 'pm.is_active', 'pm.sort_order'],
                 'search' => ['pm.method_name', 'pm.provider_name', 'pm.account_number', 'pm.account_name', 'ga.account_name'],
                 'list' => [
                     'method_name' => ['label' => 'Method', 'type' => 'code'],
-                    'account_code' => ['label' => 'Account code'],
+                    'provider_name' => ['label' => 'Bank or network', 'empty' => 'Not filled in'],
+                    'account_number' => ['label' => 'Account number', 'empty' => '—'],
+                    'holder' => ['label' => 'In the name of', 'empty' => '—'],
+                    'currency' => ['label' => 'Cur.', 'empty' => '—'],
+                    'account_code' => ['label' => 'Ledger code'],
                     'account' => ['label' => 'Posts to', 'empty' => 'Not mapped'],
-                    'provider_name' => ['label' => 'Bank or network', 'empty' => '—'],
-                    'account_number' => ['label' => 'Account / code', 'empty' => '—'],
                     'direction' => ['label' => 'Used for', 'type' => 'label'],
                     'show_on_invoice' => ['label' => 'On invoices', 'type' => 'yesno'],
                     'is_active' => ['label' => 'In use', 'type' => 'yesno'],
@@ -2656,7 +2713,7 @@ final class Schema
                 'sections' => [
                     ['title' => 'The method', 'icon' => 'credit-card', 'hint' => 'The name is what everyone sees. The key is what payments store and never changes.', 'fields' => ['method_name', 'method_key', 'direction']],
                     ['title' => 'Where the money goes', 'icon' => 'book', 'hint' => 'The account this money moves through in the ledger.', 'fields' => ['gl_account_id', 'sort_order']],
-                    ['title' => 'Account details', 'icon' => 'hash', 'hint' => 'What a customer needs in order to pay. Fill in the parts that apply.', 'fields' => ['provider_name', 'branch_name', 'account_name', 'account_number', 'swift_code', 'phone_number']],
+                    ['title' => 'Account details', 'icon' => 'hash', 'hint' => 'The real account behind this method, exactly as on the bank\'s papers. These details are shown on invoices, on every payment as where the money went, and on the bank statements.', 'fields' => ['provider_name', 'branch_name', 'account_name', 'account_number', 'currency', 'swift_code', 'phone_number']],
                     ['title' => 'On the invoice', 'icon' => 'file-text', 'fields' => ['payment_details', 'instructions', 'show_on_invoice', 'is_active']],
                 ],
                 'fields' => [
@@ -2669,12 +2726,35 @@ final class Schema
                     'branch_name' => ['label' => 'Branch', 'type' => 'text', 'width' => 4, 'placeholder' => 'Nyarugenge Branch'],
                     'account_name' => ['label' => 'Account held in the name of', 'type' => 'text', 'width' => 4, 'placeholder' => 'The name on the bank account'],
                     'account_number' => ['label' => 'Account number or pay code', 'type' => 'text', 'width' => 4, 'placeholder' => '000401234567890', 'help' => 'For mobile money, the merchant or pay code.'],
+                    'currency' => ['label' => 'Currency of the account', 'type' => 'select', 'width' => 4, 'options' => Currency::options(), 'help' => 'An RWF account and a USD account are two methods.'],
                     'swift_code' => ['label' => 'SWIFT / BIC', 'type' => 'text', 'width' => 4, 'placeholder' => 'BKIGRWRW', 'help' => 'Only needed for payments from outside the country.'],
                     'phone_number' => ['label' => 'Phone number', 'type' => 'tel', 'width' => 4, 'placeholder' => '+250 788 000 001', 'help' => 'The number a mobile money account is registered to.'],
                     'payment_details' => ['label' => 'Anything else', 'type' => 'text', 'width' => 12, 'placeholder' => 'Quote the invoice number as the reference', 'help' => 'Only if the fields above do not cover it.'],
                     'instructions' => ['label' => 'Internal note', 'type' => 'text', 'width' => 12, 'help' => 'Only for your own staff — never shown to a customer.'],
                     'show_on_invoice' => ['label' => 'Show on invoices', 'type' => 'checkbox', 'width' => 6],
                     'is_active' => ['label' => 'Offer this method', 'type' => 'checkbox', 'width' => 6, 'help' => 'Turn it off to retire it. Payments already recorded under it are untouched.'],
+                ],
+                'related' => [
+                    ['title' => 'Money through this account', 'icon' => 'repeat', 'permission' => 'payment_methods',
+                     'sql' => "SELECT x.happened_on, x.direction, x.reference, x.counterparty, x.amount, x.currency
+                                 FROM (SELECT method_key FROM payment_methods WHERE id = :id) k
+                                 INNER JOIN (
+                                     SELECT p.method, DATE(p.paid_at) AS happened_on, 'In' AS direction, p.payment_code AS reference, c.customer_name AS counterparty, p.amount, p.currency
+                                       FROM payments p INNER JOIN invoices i ON i.id = p.invoice_id LEFT JOIN customers c ON c.id = i.customer_id WHERE p.deleted_at IS NULL
+                                     UNION ALL
+                                     SELECT sp.method, DATE(sp.paid_at), 'Out', sp.payment_code, s.supplier_name, sp.amount, sp.currency
+                                       FROM supplier_payments sp INNER JOIN supplier_bills b ON b.id = sp.bill_id LEFT JOIN suppliers s ON s.id = b.supplier_id WHERE sp.deleted_at IS NULL
+                                     UNION ALL
+                                     SELECT d.method, d.paid_at, 'Out', d.disbursement_code, COALESCE(s.supplier_name, CONCAT(d.category, ' for ', c.customer_name)), d.amount, d.currency
+                                       FROM disbursements d LEFT JOIN suppliers s ON s.id = d.supplier_id LEFT JOIN customers c ON c.id = d.customer_id WHERE d.deleted_at IS NULL
+                                     UNION ALL
+                                     SELECT e.payment_method, e.expense_date, 'Out', e.reference_code, e.category, e.amount, e.currency
+                                       FROM expenses e WHERE e.deleted_at IS NULL AND e.status = 'approved'
+                                 ) x ON x.method = k.method_key
+                                ORDER BY x.happened_on DESC, x.reference DESC
+                                LIMIT 25",
+                     'columns' => ['happened_on' => 'Date', 'direction' => 'In / out', 'reference' => 'Reference', 'counterparty' => 'From / to', 'amount' => 'Amount', 'currency' => 'Cur.'],
+                     'empty' => 'No money has gone through this method yet.'],
                 ],
             ],
 
@@ -2850,6 +2930,26 @@ final class Schema
      * there for the ones that split it, and Budget versus actual adds them up
      * either way.
      */
+    /**
+     * SQL for "the account behind a payment method", as a person reads it:
+     * Bank transfer — Bank of Kigali · Nyarugenge · No. 00040-123 · ITEC Cargo Ltd · RWF.
+     */
+    private static function methodAccountSql(string $alias): string
+    {
+        return "CONCAT_WS(' — ', {$alias}.method_name, NULLIF(CONCAT_WS(' · ', NULLIF({$alias}.provider_name, ''), NULLIF({$alias}.branch_name, ''),"
+            . " IF({$alias}.account_number IS NULL OR {$alias}.account_number = '', NULL, CONCAT('No. ', {$alias}.account_number)),"
+            . " NULLIF({$alias}.account_name, ''), NULLIF({$alias}.currency, '')), ''))";
+    }
+
+    /** One "where the money went" block for a record that names a payment method. */
+    private static function moneyMovement(string $permission, string $sql, string $empty = 'The payment method of this record is not set up yet.'): array
+    {
+        return ['title' => 'Where the money went', 'icon' => 'shuffle', 'permission' => $permission,
+            'sql' => $sql,
+            'columns' => ['from_side' => 'From', 'to_side' => 'To', 'amount_text' => 'Amount', 'ledger' => 'In the books', 'reference' => 'Reference'],
+            'empty' => $empty];
+    }
+
     private static function budgetMonths(): array
     {
         $months = [0 => 'Whole year'];

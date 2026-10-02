@@ -12,7 +12,19 @@ $unmatchedEntries = array_values(array_filter($bookEntries, static fn (array $e)
   <div class="lms-page-head">
     <div>
       <p class="lms-kicker">Bank reconciliation</p>
-      <h2 class="lms-page-title"><i class="fe fe-check-square mr-2"></i><?= e($statement['statement_code']) ?> · <?= e($statement['account_code'] . ' ' . $statement['account_name']) ?></h2>
+      <?php
+        // The real account, as it is printed on the bank's statement.
+        $bankLine = implode(' · ', array_filter([
+            $statement['provider_name'] ?? '', $statement['branch_name'] ?? '',
+            ($statement['account_number'] ?? '') !== '' ? 'No. ' . $statement['account_number'] : '',
+            $statement['holder'] ?? '', ($statement['swift_code'] ?? '') !== '' ? 'SWIFT ' . $statement['swift_code'] : '',
+        ], static fn ($part): bool => (string) $part !== ''));
+      ?>
+      <h2 class="lms-page-title"><i class="fe fe-check-square mr-2"></i><?= e($statement['statement_code']) ?> · <?= e($bankLine !== '' ? ($statement['provider_name'] ?: $statement['method_name']) : $statement['account_name']) ?></h2>
+      <p class="lms-page-sub mb-1">
+        <?php if ($bankLine !== ''): ?><strong><?= e($bankLine) ?></strong><br><?php endif; ?>
+        Ledger account <?= e($statement['account_code'] . ' ' . $statement['account_name']) ?><?php if ($bankLine === ''): ?> — add the bank name and account number under Accounting › Payment methods<?php endif; ?>.
+      </p>
       <p class="lms-page-sub">
         Statement from <?= e($statement['period_from']) ?> to <?= e($statement['period_to']) ?>, in <?= e($cur) ?>.
         <?php if (!$open): ?>

@@ -69,10 +69,54 @@ final class PaymentMethod
             if ($direction !== 'both' && !in_array((string) $row['direction'], [$direction, 'both'], true)) {
                 continue;
             }
-            $options[$key] = (string) $row['method_name'];
+            $options[$key] = self::label($row);
         }
 
         return $options;
+    }
+
+    /**
+     * The method as people should see it when choosing: its name, then the bank,
+     * the account number and the currency, so "Bank transfer" on its own never
+     * leaves anyone guessing which of the company's accounts the money is in.
+     */
+    public static function label(array $row): string
+    {
+        $details = array_values(array_filter([
+            trim((string) ($row['provider_name'] ?? '')),
+            trim((string) ($row['account_number'] ?? '')) !== '' ? 'No. ' . trim((string) $row['account_number']) : '',
+            trim((string) ($row['currency'] ?? '')),
+        ], static fn (string $part): bool => $part !== ''));
+
+        return (string) $row['method_name'] . ($details === [] ? '' : ' — ' . implode(' · ', $details));
+    }
+
+    /** The method row behind a stored key, or null. */
+    public static function find(string $methodKey): ?array
+    {
+        return self::all()[$methodKey] ?? null;
+    }
+
+    /**
+     * The method that represents a ledger account, for pages that only know the
+     * account (a bank statement, the books): the one with the most details filled in.
+     */
+    public static function forAccount(int $accountId): ?array
+    {
+        $best = null;
+        $bestScore = -1;
+        foreach (self::all() as $row) {
+            if ((int) ($row['gl_account_id'] ?? 0) !== $accountId) {
+                continue;
+            }
+            $score = count(array_filter([$row['provider_name'] ?? '', $row['account_number'] ?? '', $row['account_name'] ?? '', $row['branch_name'] ?? '']));
+            if ($score > $bestScore) {
+                $best = $row;
+                $bestScore = $score;
+            }
+        }
+
+        return $best;
     }
 
     /** The account code money on this method moves through, for the ledger. */
@@ -139,7 +183,7 @@ final class PaymentMethod
             $parts[] = $name !== '' ? $name : $number;
         }
 
-        foreach (['swift_code' => 'SWIFT %s', 'phone_number' => 'Tel %s'] as $field => $format) {
+        foreach (['currency' => '%s account', 'swift_code' => 'SWIFT %s', 'phone_number' => 'Tel %s'] as $field => $format) {
             $value = trim((string) ($row[$field] ?? ''));
             if ($value !== '') {
                 $parts[] = sprintf($format, $value);

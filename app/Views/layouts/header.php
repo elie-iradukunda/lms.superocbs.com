@@ -153,6 +153,9 @@ $searchIndex[] = ['label' => 'My profile', 'url' => url('account'), 'group' => '
       <div class="w-100 mb-4 d-flex"><a class="navbar-brand mx-auto mt-2 flex-fill text-center" href="<?= url('dashboard') ?>"><img src="<?= $baseUrl ?>/assets/img/logistics-logo.svg" width="86%" alt="LMS"></a></div>
       <ul class="navbar-nav flex-fill w-100 mb-2">
         <li class="nav-item w-100"><a class="nav-link<?= nav_active('dashboard') ?>" href="<?= url('dashboard') ?>"><i class="fe fe-home fe-16"></i><span class="ml-3 item-text">Dashboard</span></a></li>
+        <?php if (current_role() === 'driver' && current_driver_id() !== null): ?>
+          <li class="nav-item w-100"><a class="nav-link<?= nav_active('my-trips') ?>" href="<?= url('my-trips') ?>"><i class="fe fe-truck fe-16"></i><span class="ml-3 item-text">My trips &amp; papers</span></a></li>
+        <?php endif; ?>
 
         <?php foreach ($navigation as $group): ?>
           <li class="nav-item dropdown">

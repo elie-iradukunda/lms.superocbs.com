@@ -368,7 +368,7 @@ function navigation(): array
             ['warehouses', 'Warehouses'], ['storage_lots', 'Customer storage'], ['storage_releases', 'Gate passes'], ['warehouse', 'Inventory'], ['movements', 'Stock movements'], ['procurement', 'Procurement'], ['suppliers', 'Suppliers'],
         ]],
         ['label' => 'Accounting', 'icon' => 'book', 'id' => 'accountingMenu', 'items' => [
-            ['books', 'Accounting books'], ['journal', 'Journal'], ['accounts', 'Chart of accounts'], ['cheques', 'Cheques'], ['cheque_books', 'Cheque books'], ['bank_statements', 'Bank reconciliation'], ['budgets', 'Budget'], ['currencies', 'Currencies'], ['currency_rates', 'Exchange rates'], ['payment_methods', 'Payment methods'],
+            ['books', 'Accounting books'], ['journal', 'Journal'], ['accounts', 'Chart of accounts'], ['cheques', 'Cheques'], ['cheque_books', 'Cheque books'], ['bank_statements', 'Bank reconciliation'], ['budgets', 'Budget'], ['currencies', 'Currencies'], ['payment_methods', 'Payment methods'],
         ]],
     ];
 

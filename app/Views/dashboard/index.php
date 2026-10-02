@@ -9,17 +9,38 @@
   <?php endif; ?>
   <div class="row justify-content-center"><div class="col-12"><div class="row align-items-center mb-2"><div class="col"><h2 class="h5 page-title"><?= htmlspecialchars($title) ?></h2></div></div></div>
   <?php
-  // The driver's trips panel reads many tables. If any of it fails, the rest of
-  // the dashboard still opens and the reason is written to the error log.
+  // A driver's trips and papers have their own page ("My trips & papers"); the
+  // dashboard only says where he is going next and links to it. Never let it
+  // stop the dashboard from opening.
   if (($role ?? '') === 'driver' && current_driver_id() !== null) {
-      ob_start();
       try {
-          require __DIR__ . '/driver_trips.php';
-          echo ob_get_clean();
+          $nextTrip = null;
+          foreach (\Models\DriverWorkspace::trips((int) current_driver_id()) as $candidate) {
+              if (in_array($candidate['status'], ['requested', 'approved', 'loading', 'in_transit'], true)) {
+                  $nextTrip = $candidate;
+                  break;
+              }
+          }
+          ?>
+          <div class="col-12 mb-3">
+            <div class="card shadow-sm lms-mt-live">
+              <div class="card-body d-flex justify-content-between align-items-center flex-wrap" style="gap:12px">
+                <div>
+                  <?php if ($nextTrip !== null): ?>
+                    <div class="small text-muted text-uppercase font-weight-bold">Your trip now</div>
+                    <div class="h5 mb-1"><?= e($nextTrip['reference_code']) ?> · <?= e($nextTrip['pickup_location']) ?> <i class="fe fe-arrow-right"></i> <?= e($nextTrip['destination']) ?></div>
+                    <div class="small text-muted">Truck <?= e($nextTrip['plate_number'] ?? '—') ?> · <?= e(\Models\Schema::label((string) $nextTrip['status'])) ?><?= $nextTrip['planned_arrival_at'] ? ' · arrive by ' . e(date('D d M, H:i', strtotime((string) $nextTrip['planned_arrival_at']))) : '' ?></div>
+                  <?php else: ?>
+                    <div class="h6 mb-0">No trip for you right now.</div>
+                  <?php endif; ?>
+                </div>
+                <a class="btn btn-primary" href="<?= url('my-trips') ?>"><i class="fe fe-truck fe-12 mr-1"></i>My trips &amp; papers</a>
+              </div>
+            </div>
+          </div>
+          <?php
       } catch (\Throwable $panelError) {
-          ob_end_clean();
-          error_log(sprintf('LMS driver panel: %s: %s in %s:%d', $panelError::class, $panelError->getMessage(), $panelError->getFile(), $panelError->getLine()));
-          echo '<div class="col-12 mb-3"><div class="alert alert-warning mb-0"><i class="fe fe-alert-triangle mr-2"></i>Your trips and papers could not be shown just now. The rest of the dashboard is below; the office has the details in the error log.</div></div>';
+          error_log(sprintf('LMS driver card: %s: %s in %s:%d', $panelError::class, $panelError->getMessage(), $panelError->getFile(), $panelError->getLine()));
       }
   }
   ?>

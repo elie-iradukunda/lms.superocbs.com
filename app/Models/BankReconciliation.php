@@ -35,9 +35,11 @@ final class BankReconciliation
     public static function statement(int $id): ?array
     {
         return self::row(
-            'SELECT s.*, a.account_code, a.account_name, u.full_name AS reconciled_by_name
+            'SELECT s.*, a.account_code, a.account_name, u.full_name AS reconciled_by_name,
+                    pm.method_name, pm.provider_name, pm.branch_name, pm.account_name AS holder, pm.account_number, pm.swift_code
                FROM bank_statements s
                INNER JOIN gl_accounts a ON a.id = s.account_id
+               LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id
                LEFT JOIN users u ON u.id = s.reconciled_by
               WHERE s.id = ? AND s.deleted_at IS NULL',
             [$id]

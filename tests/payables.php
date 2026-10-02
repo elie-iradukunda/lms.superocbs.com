@@ -174,10 +174,18 @@ try {
 
     // ------------------------------------------------- bank reconciliation
     $test->same(590000.0, $balance('1031'), 'the books show 590,000 in the test bank');
-    $statementId = Models\LogisticsData::save('bank_statements', null, [
-        'statement_code' => '', 'account_id' => (string) $bankId, 'currency' => 'RWF',
+    // The statement is for the bank account as set up under Payment methods;
+    // its ledger account and currency come from there.
+    $pdo->exec("UPDATE payment_methods SET provider_name = 'Test Bank Rwanda', account_number = '00099-000111-22', account_name = 'ITEC Test', currency = 'RWF' WHERE method_key = 'test_bank'");
+    Models\PaymentMethod::flush();
+    $methodId = (int) $one("SELECT id FROM payment_methods WHERE method_key = 'test_bank'");
+    $statementId = $checked('bank_statements', [
+        'statement_code' => '', 'payment_method_id' => (string) $methodId, 'currency' => 'USD',
         'period_from' => date('Y-m-01'), 'period_to' => date('Y-m-t'), 'opening_balance' => '0', 'closing_balance' => '585000',
     ]);
+    $test->same($bankId, (int) $one('SELECT account_id FROM bank_statements WHERE id = ?', [$statementId]), 'the statement takes its ledger account from the bank account chosen');
+    $test->same('RWF', (string) $one('SELECT currency FROM bank_statements WHERE id = ?', [$statementId]), 'and its currency, whatever was typed');
+    $test->assert(str_contains((string) (Models\PaymentMethod::options('both')['test_bank'] ?? ''), 'No. 00099-000111-22'), 'payment forms offer the account with its number');
     $csv = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'statement_' . uniqid() . '.csv';
     file_put_contents($csv, "Date,Description,Reference,Credit,Debit\n"
         . date('d/m/Y') . ",Receipt Payables Test Hardware,BK-1,\"1,480,000.00\",\n"

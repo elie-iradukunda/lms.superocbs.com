@@ -7,6 +7,7 @@ use Controllers\AuditController;
 use Controllers\BankController;
 use Controllers\BooksController;
 use Controllers\DashboardController;
+use Controllers\DriverController;
 use Controllers\FileController;
 use Controllers\HomeController;
 use Controllers\ImportController;
@@ -28,6 +29,7 @@ $router->add(['GET', 'POST'], '/reset-password/{token}', [HomeController::class,
 
 // ------------------------------------------------------------------ account
 $router->get('/dashboard', [DashboardController::class, 'index']);
+$router->get('/my-trips', [DriverController::class, 'myTrips'], ['permission' => 'dashboard']);
 $router->get('/account', [AccountController::class, 'profile'], ['permission' => 'dashboard']);
 $router->post('/account', [AccountController::class, 'updateProfile'], ['permission' => 'dashboard']);
 $router->get('/account/password', [AccountController::class, 'password'], ['permission' => 'dashboard']);

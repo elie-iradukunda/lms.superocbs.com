@@ -262,6 +262,16 @@ final class LogisticsData
             $options[(int) $row['id']] = (string) $row['label'];
         }
 
+        // A payment method is a real account: offer it with its bank, number and
+        // currency, so two accounts at the same bank are never confused.
+        if ($table === 'payment_methods') {
+            foreach (PaymentMethod::all() as $method) {
+                if (isset($options[(int) ($method['id'] ?? 0)])) {
+                    $options[(int) $method['id']] = PaymentMethod::label($method);
+                }
+            }
+        }
+
         return $options;
     }
 
@@ -1052,6 +1062,19 @@ final class LogisticsData
             }
         }
 
+        // A statement is for one real account: its ledger account and currency
+        // follow the payment method chosen, so they can never disagree with it.
+        if ($key === 'bank_statements' && !empty($columns['payment_method_id'])) {
+            $method = self::db()->prepare('SELECT gl_account_id, currency FROM payment_methods WHERE id = ?');
+            $method->execute([(int) $columns['payment_method_id']]);
+            if (($row = $method->fetch()) !== false) {
+                $columns['account_id'] = $row['gl_account_id'] !== null ? (int) $row['gl_account_id'] : null;
+                if (!empty($row['currency'])) {
+                    $columns['currency'] = (string) $row['currency'];
+                }
+            }
+        }
+
         if ($key === 'storage_lots' && $id === null) {
             $columns['status'] = 'in_store';
         }
@@ -1526,7 +1549,7 @@ final class LogisticsData
         }
 
         if ($key === 'crossings') {
-            // Charges decide the total, its conversion, and what is posted, so a
+            // Charges decide the total and what is posted, so a
             // cleared crossing reposts as soon as they change.
             BorderCrossing::recalculate($parentId);
             BorderCrossing::post($parentId);
@@ -1879,6 +1902,7 @@ final class LogisticsData
         'maintenance_orders' => 'work_order_code',
         'storage_lots' => 'lot_code',
         'journeys' => 'journey_code',
+        'payment_methods' => 'method_name',
     ];
 
     private static function relationAllowed(string $table, string $column): bool
