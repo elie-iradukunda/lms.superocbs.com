@@ -176,6 +176,62 @@ final class Billing
             $results[] = ['id' => $invoiceId, 'number' => $number, 'created' => true, 'disbursements' => $disbursed];
         }
 
+        // Money paid for a customer in a currency none of their freight is billed
+        // in (taxes in francs on a dollar trip) gets an invoice of its own, in
+        // that currency: nothing is converted, and nothing is left unclaimed.
+        $customers = array_unique(array_map(static fn (array $load): int => (int) $load['customer_id'], $loads));
+        foreach ($customers as $customerId) {
+            $pending = $db->prepare(
+                "SELECT DISTINCT currency FROM disbursements
+                  WHERE customer_id = ? AND trip_id IN ({$legList}) AND status = 'pending' AND deleted_at IS NULL"
+            );
+            $pending->execute([$customerId]);
+            foreach ($pending->fetchAll(PDO::FETCH_COLUMN) as $currency) {
+                $currency = strtoupper((string) $currency);
+                if (isset($groups[$customerId . '|' . $currency])) {
+                    continue;
+                }
+                $existing = self::row(
+                    "SELECT id, invoice_number FROM invoices
+                      WHERE trip_id IN ({$legList}) AND customer_id = ? AND currency = ? AND deleted_at IS NULL AND status <> 'cancelled'
+                      ORDER BY id LIMIT 1",
+                    [$customerId, $currency]
+                );
+                if ($existing !== null) {
+                    $results[] = ['id' => (int) $existing['id'], 'number' => (string) $existing['invoice_number'], 'created' => false];
+                    continue;
+                }
+                $terms = (int) (self::scalar('SELECT payment_terms_days FROM customers WHERE id = ?', [$customerId]) ?: 0) ?: Settings::int('payment_terms_days', 30);
+                $lpo = (string) (self::scalar('SELECT COALESCE(s.customer_reference, r.lpo_number) FROM shipments s LEFT JOIN transport_requests r ON r.id = s.request_id WHERE s.trip_id IN (' . $legList . ') AND s.customer_id = ? AND s.deleted_at IS NULL ORDER BY s.id LIMIT 1', [$customerId]) ?: '');
+                $invoiceId = LogisticsData::save('invoices', null, [
+                    'invoice_number' => '',
+                    'customer_id' => (string) $customerId,
+                    'trip_id' => (string) $tripId,
+                    'status' => 'draft',
+                    'currency' => $currency,
+                    'lpo_number' => $lpo,
+                    'issue_date' => date('Y-m-d'),
+                    'due_date' => date('Y-m-d', strtotime('+' . $terms . ' days')),
+                    'tax_rate' => (string) Settings::float('tax_rate', 18.0),
+                    'notes' => sprintf('Taxes and charges paid on your behalf for trip %s, recharged at cost with the receipts.', $trip['reference_code']),
+                ]);
+                if ($journeyId > 0) {
+                    $db->prepare('UPDATE invoices SET journey_id = ? WHERE id = ?')->execute([$journeyId, $invoiceId]);
+                }
+                try {
+                    $disbursed = Payables::addToInvoice($invoiceId);
+                } catch (\Throwable) {
+                    $disbursed = 0;
+                }
+                $number = (string) self::scalar('SELECT invoice_number FROM invoices WHERE id = ?', [$invoiceId]);
+                AuditLog::record('invoice.from_trip', 'invoices', $number, null, ['trip' => $trip['reference_code'], 'disbursements' => $disbursed]);
+                Notifier::toRole('finance', 'Draft invoice ready to issue',
+                    sprintf('%s (charges paid for the customer, %s) was raised from trip %s. Check it and press Issue invoice.', $number, $currency, $trip['reference_code']),
+                    'invoices', 'info', 'invoices', (string) $invoiceId);
+                $results[] = ['id' => $invoiceId, 'number' => $number, 'created' => true, 'disbursements' => $disbursed];
+            }
+        }
+
         $created = array_values(array_filter($results, static fn (array $r): bool => $r['created']));
         $kept = array_values(array_filter($results, static fn (array $r): bool => !$r['created']));
 

@@ -236,6 +236,10 @@ final class Ledger
             $conditions[] = 'e.source_type = ?';
             $parameters[] = (string) $query['source'];
         }
+        if (!empty($query['currency'])) {
+            $conditions[] = 'e.currency = ?';
+            $parameters[] = strtoupper((string) $query['currency']);
+        }
         if (!empty($query['q'])) {
             $conditions[] = '(e.entry_no LIKE ? OR e.memo LIKE ? OR e.source_code LIKE ? OR e.reference LIKE ?)';
             $like = '%' . $query['q'] . '%';
@@ -264,6 +268,18 @@ final class Ledger
         $statement->execute($parameters);
 
         return ['rows' => $statement->fetchAll(), 'total' => $total, 'pages' => $pages, 'page' => $page];
+    }
+
+    /** @return list<string> the currencies the journal holds entries in, base first */
+    public static function currenciesUsed(): array
+    {
+        $used = self::db()->query(
+            "SELECT DISTINCT currency FROM gl_journal_entries WHERE deleted_at IS NULL AND status <> 'draft' ORDER BY currency"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $base = Currency::base();
+        $used = array_values(array_diff(array_map('strval', $used), [$base]));
+
+        return array_merge([$base], $used);
     }
 
     public static function entry(int $id): ?array

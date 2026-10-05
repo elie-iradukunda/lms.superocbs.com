@@ -240,16 +240,27 @@ final class Rate
             return;
         }
 
-        $quote = self::quote(
-            (string) $shipment['destination'],
-            (float) $shipment['weight_kg'],
-            $shipment['customer_id'] !== null ? (int) $shipment['customer_id'] : null,
-            (string) $shipment['origin'],
-            (string) ($shipment['vehicle_type'] ?? ''),
-            '',
-            $shipment['origin_warehouse_id'] !== null ? (int) $shipment['origin_warehouse_id'] : null,
-            $shipment['destination_warehouse_id'] !== null ? (int) $shipment['destination_warehouse_id'] : null
-        );
+        // A load booked from a request is priced on the card the customer chose
+        // there, at the weight actually loaded.
+        $chosenId = null;
+        if (!empty($shipment['request_id'])) {
+            $pick = Database::connection()->prepare('SELECT rate_card_id FROM transport_requests WHERE id = ?');
+            $pick->execute([(int) $shipment['request_id']]);
+            $chosenId = $pick->fetchColumn() ?: null;
+        }
+        $chosen = self::chosenCard($chosenId, $shipment);
+        $quote = $chosen !== null
+            ? self::price($chosen, (float) $shipment['weight_kg'])
+            : self::quote(
+                (string) $shipment['destination'],
+                (float) $shipment['weight_kg'],
+                $shipment['customer_id'] !== null ? (int) $shipment['customer_id'] : null,
+                (string) $shipment['origin'],
+                (string) ($shipment['vehicle_type'] ?? ''),
+                '',
+                $shipment['origin_warehouse_id'] !== null ? (int) $shipment['origin_warehouse_id'] : null,
+                $shipment['destination_warehouse_id'] !== null ? (int) $shipment['destination_warehouse_id'] : null
+            );
 
         $update = Database::connection()->prepare(
             'UPDATE shipments SET rate_card_id = ?, quoted_amount = ?, quote_basis = ? WHERE id = ?'
@@ -303,6 +314,38 @@ final class Rate
      * already there. The three answers are different jobs: write a card, put a
      * date on it, or fix the depot on the record.
      */
+    /**
+     * The rate card someone picked, if it is in force, open to this customer and
+     * goes where the record goes. A card picked for another route is ignored,
+     * so changing the destination never keeps an old price.
+     */
+    public static function chosenCard(mixed $cardId, array $record): ?array
+    {
+        if ($cardId === null || $cardId === '' || (int) $cardId <= 0) {
+            return null;
+        }
+
+        $statement = Database::connection()->prepare(
+            "SELECT * FROM rate_cards WHERE id = ? AND deleted_at IS NULL AND status = 'active'
+                AND effective_from <= CURDATE() AND (effective_to IS NULL OR effective_to >= CURDATE())"
+        );
+        $statement->execute([(int) $cardId]);
+        $card = $statement->fetch(PDO::FETCH_ASSOC);
+        if ($card === false) {
+            return null;
+        }
+        if ($card['customer_id'] !== null && (int) $card['customer_id'] !== (int) ($record['customer_id'] ?? 0)) {
+            return null;
+        }
+
+        $toWarehouse = (int) ($record['destination_warehouse_id'] ?? 0);
+        $sameDestination = $card['destination_warehouse_id'] !== null && $toWarehouse > 0
+            ? (int) $card['destination_warehouse_id'] === $toWarehouse
+            : strcasecmp(trim((string) $card['destination']), trim((string) ($record['destination'] ?? ''))) === 0;
+
+        return $sameDestination ? $card : null;
+    }
+
     public static function noCardReason(string $destination, ?int $destinationWarehouseId, ?int $customerId = null): string
     {
         $place = trim($destination) !== '' ? trim($destination) : 'that destination';
@@ -380,22 +423,28 @@ final class Rate
             || (float) ($before['weight_kg'] ?? 0) !== (float) $request['weight_kg']
             || (int) ($before['destination_warehouse_id'] ?? 0) !== (int) $request['destination_warehouse_id']
             || (int) ($before['origin_warehouse_id'] ?? 0) !== (int) $request['origin_warehouse_id']
-            || (int) ($before['customer_id'] ?? 0) !== (int) $request['customer_id'];
+            || (int) ($before['customer_id'] ?? 0) !== (int) $request['customer_id']
+            || (int) ($before['rate_card_id'] ?? 0) !== (int) ($request['rate_card_id'] ?? 0);
 
         if (!$changed && $request['quoted_amount'] !== null) {
             return ['amount' => (float) $request['quoted_amount'], 'basis' => (string) $request['quote_basis']];
         }
 
-        $quote = self::quote(
-            (string) $request['destination'],
-            (float) $request['weight_kg'],
-            $request['customer_id'] !== null ? (int) $request['customer_id'] : null,
-            (string) $request['pickup_location'],
-            '',
-            '',
-            $request['origin_warehouse_id'] !== null ? (int) $request['origin_warehouse_id'] : null,
-            $request['destination_warehouse_id'] !== null ? (int) $request['destination_warehouse_id'] : null
-        );
+        // The card the customer chose (a full truck or a shared load on the same
+        // route) wins over guessing; otherwise the best card for the route.
+        $chosen = self::chosenCard($request['rate_card_id'] ?? null, $request);
+        $quote = $chosen !== null
+            ? self::price($chosen, (float) $request['weight_kg'])
+            : self::quote(
+                (string) $request['destination'],
+                (float) $request['weight_kg'],
+                $request['customer_id'] !== null ? (int) $request['customer_id'] : null,
+                (string) $request['pickup_location'],
+                '',
+                '',
+                $request['origin_warehouse_id'] !== null ? (int) $request['origin_warehouse_id'] : null,
+                $request['destination_warehouse_id'] !== null ? (int) $request['destination_warehouse_id'] : null
+            );
 
         $update = Database::connection()->prepare(
             'UPDATE transport_requests SET rate_card_id = ?, quoted_amount = ?, quote_basis = ? WHERE id = ?'

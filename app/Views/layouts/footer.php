@@ -43,8 +43,64 @@
   <div class="modal-footer"><button type="button" class="btn btn-light" data-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="confirmReasonButton">Confirm</button></div>
 </div></div></div>
 
+<div class="modal fade" id="readinessModal" tabindex="-1" role="dialog" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg"><div class="modal-content">
+  <div class="modal-header">
+    <div>
+      <small class="text-muted text-uppercase" id="readinessModalGroup"></small>
+      <h5 class="modal-title" id="readinessModalTitle"></h5>
+    </div>
+    <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+  </div>
+  <div class="modal-body">
+    <div class="lms-readiness-state" id="readinessModalState"></div>
+    <dl class="row lms-readiness-facts mb-0" id="readinessModalFacts"></dl>
+    <div id="readinessModalPreview" class="lms-readiness-preview d-none"></div>
+  </div>
+  <div class="modal-footer" id="readinessModalActions"></div>
+</div></div></div>
+
 <script>
 $(function () {
+  // A line of the "Ready to start the trip?" panel opens its details: the
+  // paper's number and dates, the scan to look at, and where to fix it.
+  $(document).on('click', '.lms-readiness-item', function () {
+    var more = {};
+    try { more = JSON.parse($(this).attr('data-more') || '{}'); } catch (e) { return; }
+    var words = { ok: 'In order', warn: 'Look at this', fail: 'Must be fixed before the truck leaves' };
+    var icons = { ok: 'check-circle', warn: 'alert-triangle', fail: 'x-circle' };
+    var $modal = $('#readinessModal');
+    $('#readinessModalGroup').text(more.group || '');
+    $('#readinessModalTitle').text(more.title || '');
+    $('#readinessModalState').attr('class', 'lms-readiness-state is-' + (more.state || 'ok')).empty()
+      .append($('<i>').addClass('fe fe-' + (icons[more.state] || 'circle') + ' mr-2'))
+      .append($('<strong>').text(words[more.state] || ''))
+      .append(more.detail ? $('<span>').text(' — ' + more.detail) : '');
+    var $facts = $('#readinessModalFacts').empty();
+    $.each(more.facts || {}, function (label, value) {
+      if (value === null || value === '') { return; }
+      $facts.append($('<dt class="col-sm-4">').text(label), $('<dd class="col-sm-8">').text(value));
+    });
+    var $preview = $('#readinessModalPreview').addClass('d-none').empty();
+    var $actions = $('#readinessModalActions').empty();
+    if (more.file) {
+      // A scan shows straight away; a PDF in a frame, a photo as a picture.
+      var isImage = /\.(png|jpe?g|webp)$/i.test(more.file);
+      $preview.removeClass('d-none').append(isImage ? $('<img alt="">').attr('src', more.file) : $('<iframe title="Document">').attr('src', more.file));
+      $actions.append($('<a class="btn btn-primary" target="_blank" rel="noopener">').attr('href', more.file).html('<i class="fe fe-external-link fe-12 mr-1"></i>Open file'));
+    } else if (more.edit) {
+      $actions.append($('<a class="btn btn-outline-primary">').attr('href', more.edit).html('<i class="fe fe-paperclip fe-12 mr-1"></i>Attach the scan'));
+    }
+    if (more.add) {
+      $actions.append($('<a class="btn btn-primary">').attr('href', more.add).html('<i class="fe fe-plus fe-12 mr-1"></i>').append(document.createTextNode(more.add_label || 'Add')));
+    }
+    if (more.open) {
+      $actions.append($('<a class="btn btn-light">').attr('href', more.open).text(more.open_label || 'Open'));
+    }
+    $actions.append($('<button type="button" class="btn btn-light" data-dismiss="modal">').text('Close'));
+    $modal.modal('show');
+  });
+  $('#readinessModal').on('hidden.bs.modal', function () { $('#readinessModalPreview').empty().addClass('d-none'); });
+
   // Searchable dropdowns everywhere a relation or a long option list is shown.
   $('.lms-select').each(function () {
     var $select = $(this);
@@ -140,6 +196,18 @@ $(function () {
     }
   });
 
+  // A tax line (rate and taxable value) works out its own amount, until
+  // someone types the figure from the customs notice over it.
+  $(document).on('input', 'input[name$="[tax_rate]"], input[name$="[taxable_amount]"]', function () {
+    var $row = $(this).closest('tr');
+    var $amount = $row.find('input[name$="[amount]"]');
+    if (!$amount.length || ($amount.val() !== '' && !$amount.data('auto'))) { return; }
+    var rate = parseFloat(String($row.find('input[name$="[tax_rate]"]').val()).replace(/,/g, '')) || 0;
+    var taxable = parseFloat(String($row.find('input[name$="[taxable_amount]"]').val()).replace(/,/g, '')) || 0;
+    $amount.val(rate > 0 && taxable > 0 ? (Math.round(taxable * rate) / 100).toFixed(2) : '').data('auto', true);
+  });
+  $(document).on('input', 'input[name$="[amount]"]', function () { $(this).data('auto', false); });
+
   // A drop-down that hangs off another one only offers what belongs to the
   // parent already chosen: the shipments on this trip, not every shipment in
   // the company. Picking a different parent clears a choice that no longer fits.
@@ -177,13 +245,25 @@ $(function () {
       if (!$target.length) { return; }
 
       var typed = $target.val();
-      var mine = $target.attr('data-filled-by') === $select.attr('id');
+      var mine = $target.attr('data-filled-by') === $select.attr('id') || $target.attr('data-filled-by') === 'default';
       if (typed !== '' && typed !== undefined && !mine) { return; }
 
       $target.val(answer).attr('data-filled-by', answer === '' ? null : $select.attr('id'));
       if ($target.is('select') && $target.hasClass('select2-hidden-accessible')) { $target.trigger('change.select2'); }
+      // A customer filled in by the request brings its own details with it (its phone).
+      if ($target.is('select') && $target.find('option[data-fills]').length) { lmsFill($target); }
     });
   }
+
+  // A new form opens with starting values (one package, today's date, the
+  // request it came from). They are suggestions, not answers: choosing a
+  // request replaces them. Anything typed by hand is never replaced.
+  $('form[data-new-record]').find('input[name^="f["], select[name^="f["], textarea[name^="f["]').each(function () {
+    var $field = $(this);
+    if ($field.val() !== '' && $field.val() !== null && !$field.attr('data-filled-by') && $field.attr('type') !== 'checkbox') {
+      $field.attr('data-filled-by', 'default');
+    }
+  });
 
   $('select[data-depends-on]').each(function () {
     var $select = $(this);

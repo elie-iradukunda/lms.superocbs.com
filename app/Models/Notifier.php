@@ -381,7 +381,13 @@ final class Notifier
         return $statement->fetchAll();
     }
 
-    private static function insert(?int $userId, ?string $roleKey, string $title, string $message, ?string $route, string $severity, ?string $entityType, ?string $entityId): void
+    /** On the bell only, no email: for the small updates of a trip on the road. */
+    public static function bellToRole(string $roleKey, string $title, string $message, ?string $route = null, string $severity = 'info', ?string $entityType = null, ?string $entityId = null): void
+    {
+        self::insert(null, $roleKey, $title, $message, $route, $severity, $entityType, $entityId, false);
+    }
+
+    private static function insert(?int $userId, ?string $roleKey, string $title, string $message, ?string $route, string $severity, ?string $entityType, ?string $entityId, bool $email = true): void
     {
         $key = uniqid('n-', true);
 
@@ -407,6 +413,8 @@ final class Notifier
             return;
         }
 
-        self::email($key, $userId, $roleKey, $title, $message, $route, $severity, 'notification', $entityType, $entityId);
+        if ($email) {
+            self::email($key, $userId, $roleKey, $title, $message, $route, $severity, 'notification', $entityType, $entityId);
+        }
     }
 }

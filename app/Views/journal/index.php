@@ -1,11 +1,14 @@
 <?php require __DIR__ . '/../layouts/header.php'; ?>
 <?php
-$query = array_intersect_key($_GET, array_flip(['q', 'source', 'from', 'to']));
+$query = array_intersect_key($_GET, array_flip(['q', 'source', 'currency', 'from', 'to']));
 $sources = [
-    'manual' => 'Manual entry', 'opening' => 'Opening balances', 'invoice' => 'Invoice',
+    'manual' => 'Manual entry', 'opening_balance' => 'Opening balances', 'method_opening' => 'Account opening balance', 'invoice' => 'Invoice',
     'payment' => 'Payment', 'expense' => 'Expense', 'fuel' => 'Fuel',
-    'maintenance' => 'Maintenance', 'purchase' => 'Goods received', 'reversal' => 'Reversal',
+    'maintenance' => 'Maintenance', 'purchase' => 'Goods received', 'crossing' => 'Border charges',
+    'disbursement' => 'Disbursement', 'supplier_bill' => 'Supplier bill', 'supplier_payment' => 'Supplier payment',
+    'bank_line' => 'Bank statement', 'reversal' => 'Reversal',
 ];
+$pdfQuery = ['from' => $from ?: date('Y-01-01'), 'to' => $to ?: date('Y-m-d')] + ($currency !== '' ? ['currency' => $currency] : []);
 ?>
 <div class="container-fluid lms-list-page">
   <div class="lms-page-head">
@@ -15,7 +18,7 @@ $sources = [
     </div>
     <div class="lms-page-actions">
       <a class="btn btn-outline-secondary" href="<?= url('books') ?>"><i class="fe fe-book fe-12 mr-1"></i>Books</a>
-      <a class="btn btn-outline-secondary" href="<?= e(url(['books', 'export', 'journal', 'pdf'], ['from' => $from ?: date('Y-01-01'), 'to' => $to ?: date('Y-m-d')])) ?>"><i class="fe fe-file-text fe-12 mr-1"></i>PDF</a>
+      <a class="btn btn-outline-secondary" href="<?= e(url(['books', 'export', 'journal', 'pdf'], $pdfQuery)) ?>"><i class="fe fe-file-text fe-12 mr-1"></i>PDF</a>
       <?php if (can_create('journal')): ?>
         <a class="btn btn-primary" href="<?= url(['journal', 'create']) ?>"><i class="fe fe-plus fe-12 mr-1"></i>New entry</a>
       <?php endif; ?>
@@ -37,6 +40,12 @@ $sources = [
           <option value="">Every source</option>
           <?php foreach ($sources as $value => $label): ?>
             <option value="<?= e($value) ?>" <?= $source === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+          <?php endforeach; ?>
+        </select>
+        <select name="currency" class="form-control lms-filter-select" aria-label="Currency">
+          <option value="">Every currency</option>
+          <?php foreach ($currencies as $code): ?>
+            <option value="<?= e($code) ?>" <?= $currency === $code ? 'selected' : '' ?>><?= e($code) ?></option>
           <?php endforeach; ?>
         </select>
         <input type="date" name="from" class="form-control lms-filter-narrow" value="<?= e($from) ?>" aria-label="From date">
@@ -71,7 +80,7 @@ $sources = [
                 <td><?= e($entry['memo']) ?></td>
                 <td><?= e($sources[(string) ($entry['source_type'] ?? 'manual')] ?? ucfirst((string) $entry['source_type'])) ?></td>
                 <td><?= $entry['source_code'] ? e($entry['source_code']) : '<span class="text-muted">&mdash;</span>' ?></td>
-                <td class="text-right lms-num"><?= e(money((float) $entry['total_debit'])) ?></td>
+                <td class="text-right lms-num"><?= e(\Models\Currency::format((float) $entry['total_debit'], (string) ($entry['currency'] ?: \Models\Currency::base()))) ?></td>
                 <td><span class="badge badge-<?= $entry['status'] === 'reversed' ? 'danger' : 'success' ?>"><?= e(ucfirst((string) $entry['status'])) ?></span></td>
                 <td class="text-right"><a href="<?= url(['journal', $entry['id']]) ?>" class="btn btn-sm btn-link"><i class="fe fe-eye fe-16"></i></a></td>
               </tr>

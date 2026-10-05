@@ -2,6 +2,8 @@
 <?php
 $totalDebit = 0.0;
 $totalCredit = 0.0;
+$entryCurrency = (string) ($entry['currency'] ?: \Models\Currency::base());
+$amount = static fn (float $value): string => \Models\Currency::format($value, $entryCurrency);
 foreach ($lines as $line) {
     $totalDebit += (float) $line['debit'];
     $totalCredit += (float) $line['credit'];
@@ -9,6 +11,7 @@ foreach ($lines as $line) {
 $sourceRoutes = [
     'invoice' => 'invoices', 'payment' => 'payments', 'expense' => 'expenses',
     'fuel' => 'fuel', 'maintenance' => 'maintenance', 'purchase' => 'procurement',
+    'method_opening' => 'payment_methods',
 ];
 $sourceRoute = $sourceRoutes[(string) $entry['source_type']] ?? null;
 ?>
@@ -49,7 +52,7 @@ $sourceRoute = $sourceRoutes[(string) $entry['source_type']] ?? null;
     </div>
     <div class="lms-highlight">
       <span class="lms-highlight-icon"><i class="fe fe-dollar-sign fe-16"></i></span>
-      <div><small>Amount</small><strong><?= e(money($totalDebit, true)) ?></strong></div>
+      <div><small>Amount</small><strong><?= e($amount($totalDebit)) ?></strong></div>
     </div>
     <div class="lms-highlight">
       <span class="lms-highlight-icon"><i class="fe fe-link fe-16"></i></span>
@@ -94,14 +97,14 @@ $sourceRoute = $sourceRoutes[(string) $entry['source_type']] ?? null;
                   <?php endif; ?>
                 </td>
                 <td class="text-muted"><?= e($line['description'] ?? '') ?></td>
-                <td class="text-right lms-num"><?= (float) $line['debit'] > 0 ? e(money((float) $line['debit'])) : '' ?></td>
-                <td class="text-right lms-num"><?= (float) $line['credit'] > 0 ? e(money((float) $line['credit'])) : '' ?></td>
+                <td class="text-right lms-num"><?= (float) $line['debit'] > 0 ? e($amount((float) $line['debit'])) : '' ?></td>
+                <td class="text-right lms-num"><?= (float) $line['credit'] > 0 ? e($amount((float) $line['credit'])) : '' ?></td>
               </tr>
             <?php endforeach; ?>
             <tr class="lms-book-grand">
               <td colspan="2"><strong>TOTAL</strong></td>
-              <td class="text-right lms-num"><?= e(money($totalDebit)) ?></td>
-              <td class="text-right lms-num"><?= e(money($totalCredit)) ?></td>
+              <td class="text-right lms-num"><?= e($amount($totalDebit)) ?></td>
+              <td class="text-right lms-num"><?= e($amount($totalCredit)) ?></td>
             </tr>
           </tbody>
         </table>

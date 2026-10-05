@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Controllers;
 
+use Core\Database;
 use Core\Flash;
 use Models\AuditLog;
 use Models\LogisticsData;
@@ -240,10 +241,65 @@ final class LogisticsController
         $action = (string) $params['action'];
         $reason = trim((string) ($_POST['reason'] ?? ''));
 
+        // An action that asks for a few fields first (the answer when a support
+        // request is resolved) saves them in the same press. Only fields this
+        // role may write are taken.
+        $spec = Schema::get($key)['actions'][$action] ?? [];
+        if (!empty($spec['form']) && is_array($_POST['f'] ?? null)) {
+            $problem = $this->saveActionFields($key, $id, (array) $spec['form'], $_POST['f']);
+            if ($problem !== null) {
+                Flash::error($problem);
+                $this->redirect(\url([$key, $id]));
+            }
+        }
+
         $result = Workflow::apply($key, $id, $action, $reason);
         $result['ok'] ? Flash::success($result['message']) : Flash::error($result['message']);
 
         $this->redirect(\url([$key, $id]));
+    }
+
+    /** @return string|null what is wrong with what was typed, or null once it is saved */
+    private function saveActionFields(string $key, int $id, array $names, array $posted): ?string
+    {
+        if (LogisticsData::find($key, $id, \current_context()) === null) {
+            return 'That record no longer exists.';
+        }
+        $editable = Schema::editableFields($key, \current_role());
+        $sets = [];
+        $values = [];
+        foreach ($names as $name) {
+            if (!isset($editable[$name]) || !array_key_exists($name, $posted)) {
+                continue;
+            }
+            $field = $editable[$name];
+            $raw = trim((string) $posted[$name]);
+            if ($raw === '') {
+                $value = null;
+            } elseif (in_array($field['type'], ['money', 'decimal', 'number'], true)) {
+                $number = str_replace([',', ' '], '', $raw);
+                if (!is_numeric($number) || (float) $number < 0) {
+                    return sprintf('"%s" must be a number.', $field['label']);
+                }
+                $value = $field['type'] === 'number' ? (int) $number : round((float) $number, 2);
+            } elseif ($field['type'] === 'select') {
+                if (!array_key_exists($raw, $field['options'] ?? [])) {
+                    return sprintf('Choose "%s" from the list.', $field['label']);
+                }
+                $value = $raw;
+            } else {
+                $value = mb_substr($raw, 0, 2000);
+            }
+            $sets[] = $name . ' = ?';
+            $values[] = $value;
+        }
+        if ($sets !== []) {
+            $values[] = $id;
+            Database::connection()->prepare('UPDATE ' . Schema::get($key)['table'] . ' SET ' . implode(', ', $sets) . ' WHERE id = ?')->execute($values);
+            AuditLog::record('record.updated', $key, (string) $id, null, ['fields' => array_map(static fn (string $s): string => strtok($s, ' '), $sets)]);
+        }
+
+        return null;
     }
 
     /** CSV of exactly what the current filters show, not of the whole table. */
@@ -426,6 +482,7 @@ final class LogisticsController
             'vehicles' => ['status' => 'available', 'fuel_type' => 'diesel', 'ownership' => 'owned', 'mileage' => 0],
             'drivers' => ['status' => 'available'],
             'vehicle_documents' => ['document_type' => 'insurance', 'status' => 'valid', 'issued_on' => $today],
+            'support_requests' => ['urgency' => 'normal', 'support_type' => 'money', 'currency' => \Models\Currency::base()],
             'maintenance' => ['status' => 'open', 'priority' => 'normal', 'maintenance_type' => 'preventive', 'due_date' => $today],
             'requests' => ['status' => 'pending', 'priority' => 'normal', 'required_date' => $today, 'requester_id' => \current_user_id()],
             'trips' => ['status' => 'requested', 'trip_type' => 'delivery'],
@@ -437,7 +494,7 @@ final class LogisticsController
             'clearance_releases' => ['release_date' => $today, 'released_by' => current_user_id()],
             'deliveries' => ['status' => 'loading', 'attempt_number' => 1, 'failure_reason' => 'none'],
             'customers' => ['status' => 'active', 'customer_type' => 'corporate', 'payment_terms_days' => \Models\Settings::int('payment_terms_days', 30)],
-            'rates' => ['status' => 'active', 'rate_type' => 'per_kg', 'rate_amount' => 0, 'effective_from' => $today],
+            'rates' => ['status' => 'active', 'service_type' => 'full_truck', 'rate_type' => 'per_trip', 'rate_amount' => 0, 'effective_from' => $today],
             'invoices' => ['status' => 'draft', 'issue_date' => $today, 'due_date' => date('Y-m-d', strtotime('+' . \Models\Settings::int('payment_terms_days', 30) . ' days')), 'tax_rate' => \Models\Settings::get('tax_rate', '18')],
             'fuel' => ['fuel_type' => 'diesel', 'is_full_tank' => 1, 'purchased_at' => $now],
             'expenses' => ['status' => 'pending', 'expense_date' => $today, 'payment_method' => 'cash', 'submitted_by' => \current_user_id()],
@@ -511,6 +568,19 @@ final class LogisticsController
             }
         }
 
+        // "Raise transport request" on an accepted price offer: the customer and
+        // the route agreed come with it.
+        if ($key === 'requests' && ($_GET['price_offer_id'] ?? '') !== '') {
+            $fromOffer = \Models\PriceOffer::requestDefaults((int) $_GET['price_offer_id']);
+            if ($fromOffer !== null) {
+                $defaults = $fromOffer + $defaults;
+            }
+        }
+
+        if ($key === 'price_offers') {
+            $defaults += ['status' => 'draft', 'valid_until' => date('Y-m-d', strtotime('+30 days')), 'message' => 'As you requested, please find below our rates for the transport of your goods.'];
+        }
+
         // "Add next leg" on a journey: the next truck starts where the last ends.
         if ($key === 'trips' && ($_GET['journey_id'] ?? '') !== '') {
             $leg = \Models\Journey::nextLegDefaults((int) $_GET['journey_id']);
@@ -534,6 +604,11 @@ final class LogisticsController
         foreach (\Models\Schema::fields($key) as $name => $field) {
             if ($field['type'] === 'relation' && !isset($defaults[$name]) && ctype_digit((string) ($_GET[$name] ?? ''))) {
                 $defaults[$name] = (int) $_GET[$name];
+            }
+            // A choice, such as the type of paper to add, only when it is one of
+            // the options. Asked for by name, it replaces the usual default.
+            if ($field['type'] === 'select' && isset($_GET[$name]) && is_string($_GET[$name]) && array_key_exists($_GET[$name], $field['options'] ?? [])) {
+                $defaults[$name] = (string) $_GET[$name];
             }
         }
 

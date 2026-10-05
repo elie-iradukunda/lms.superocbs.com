@@ -22,6 +22,69 @@ use Support\Mailer;
  */
 final class DriverMail
 {
+    /**
+     * The trip is ready to leave: every load has passed its final check and
+     * nothing the system checks is wrong. The driver gets the full report (his
+     * copy, no prices) by email and on the bell, and is told to press Start
+     * trip on his phone when he drives out. Sent once per trip.
+     */
+    public static function tripReady(int $tripId): bool
+    {
+        $trip = self::trip($tripId);
+        if ($trip === null || !in_array((string) $trip['status'], ['requested', 'approved', 'loading'], true) || (int) $trip['load_count'] === 0) {
+            return false;
+        }
+        $pending = Database::connection()->prepare(
+            "SELECT COUNT(*) FROM shipments s
+              LEFT JOIN shipment_pre_dispatch_checks pc ON pc.shipment_id = s.id
+              WHERE s.trip_id = ? AND s.deleted_at IS NULL AND s.status <> 'cancelled' AND (pc.status IS NULL OR pc.status <> 'ready')"
+        );
+        $pending->execute([$tripId]);
+        $analysis = DispatchReadiness::forTrip($tripId);
+        if ((int) $pending->fetchColumn() > 0 || $analysis === null || !$analysis['ready']) {
+            return false;
+        }
+
+        $driverUser = Database::connection()->prepare('SELECT user_id FROM drivers WHERE id = ?');
+        $driverUser->execute([(int) $trip['driver_id']]);
+        $userId = $driverUser->fetchColumn();
+        Notifier::toUser($userId !== false && $userId !== null ? (int) $userId : null, 'Your trip is ready',
+            sprintf('%s, %s to %s, is ready. Read the trip report, then press Start trip on My trips when you drive out.', $trip['reference_code'], $trip['pickup_location'], $trip['destination']),
+            'my-trips', 'success', 'trips', (string) $trip['reference_code']);
+
+        if (trim((string) $trip['email']) === '') {
+            return false;
+        }
+        $report = TripReport::store($tripId, false);
+        $result = Mailer::send([
+            'key' => 'trip-ready-' . $tripId,
+            'category' => 'notification',
+            'to' => trim((string) $trip['email']),
+            'to_name' => (string) $trip['driver_name'],
+            'subject' => sprintf('Your trip %s is ready — %s to %s', $trip['reference_code'], $trip['pickup_location'], $trip['destination']),
+            'heading' => 'Your trip is ready: ' . $trip['reference_code'],
+            'lines' => [
+                sprintf('Dear %s,', $trip['driver_name'] ?: 'Driver'),
+                sprintf('%s from %s to %s has passed its final check. The full trip report is attached: the loads, the route and every stop, the papers you carry and who to call.', $trip['reference_code'], $trip['pickup_location'], $trip['destination']),
+                'When you drive out, open My trips on your phone and press Start trip. The time is recorded and the office and the customer are told you are on your way.',
+                'At each stop on the way, press I have arrived when you get there and Leaving when you go on. If you need anything (money, help with the truck, a problem at the border), press Ask for support.',
+            ],
+            'facts' => array_filter([
+                'Truck' => (string) ($trip['plate_number'] ?? ''),
+                'Weight on board' => self::kg((float) $trip['total_weight']),
+                'Planned departure' => self::when((string) $trip['planned_departure_at']),
+                'Expected at destination' => self::when((string) $trip['planned_arrival_at']),
+            ], static fn (string $value): bool => $value !== ''),
+            'action' => ['label' => 'Open My trips', 'path' => 'my-trips'],
+            'attachments' => $report !== null ? array_slice($report, 0, 1) : [],
+            'signature' => sprintf('Sent by %s. You may reply to this message and it will reach the office.', \company_name()),
+            'entity_type' => 'trips',
+            'entity_id' => (string) $trip['reference_code'],
+        ]);
+
+        return (bool) $result['queued'];
+    }
+
     /** The full sheet for a trip that has just been dispatched. */
     public static function tripSheet(int $tripId): bool
     {
@@ -49,7 +112,13 @@ final class DriverMail
             $blocks[] = self::stopsBlock($stops);
         }
 
+        // The full trip report goes with it, as a PDF he can open in the cab,
+        // without prices: the driver's copy.
+        $report = TripReport::store($tripId, false);
+        $attachments = $report !== null ? array_slice($report, 0, 1) : [];
+
         $result = Mailer::send([
+            'attachments' => $attachments,
             'key' => 'tripsheet-' . $tripId,
             'category' => 'notification',
             'to' => trim((string) $trip['email']),

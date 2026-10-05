@@ -24,7 +24,7 @@ final class DriverWorkspace
 
         $trips = $db->prepare(
             "SELECT t.id, t.reference_code, t.status, t.pickup_location, t.destination, t.planned_departure_at, t.planned_arrival_at,
-                    t.departure_at, t.cargo_summary, t.vehicle_id, v.plate_number, v.make, v.model, c.customer_name
+                    t.departure_at, t.start_mileage, t.end_mileage, t.cargo_summary, t.vehicle_id, v.plate_number, v.make, v.model, v.mileage AS truck_mileage, c.customer_name
                FROM trips t
                LEFT JOIN vehicles v ON v.id = t.vehicle_id
                LEFT JOIN customers c ON c.id = t.customer_id
@@ -38,7 +38,11 @@ final class DriverWorkspace
 
         foreach ($out as &$trip) {
             $id = (int) $trip['id'];
-            $trip['stops'] = self::all('SELECT stop_sequence, stop_type, location_name, contact_name, contact_phone, planned_arrival_at, status FROM trip_stops WHERE trip_id = ? ORDER BY stop_sequence', [$id]);
+            $trip['stops'] = self::all('SELECT id, stop_sequence, stop_type, location_name, contact_name, contact_phone, planned_arrival_at, actual_arrival_at, departed_at, arrival_mileage, arrival_condition, status FROM trip_stops WHERE trip_id = ? ORDER BY stop_sequence, id', [$id]);
+            // Ready to leave (the driver may start it himself), and what he has asked the office for.
+            $trip['readiness'] = in_array($trip['status'], ['requested', 'approved', 'loading'], true) ? DispatchReadiness::forTrip($id) : null;
+            $trip['support'] = SupportRequest::forTrip($id);
+            $trip['distance'] = TripProgress::distance($id);
             $trip['shipments'] = self::all(
                 "SELECT id, shipment_code, cargo_description, packages_count, weight_kg, container_no, container_size, seal_no, trailer_plate,
                         consignee_name, consignee_phone, destination, special_instructions, status

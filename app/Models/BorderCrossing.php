@@ -42,6 +42,9 @@ final class BorderCrossing
 
     private const FALLBACK_ACCOUNT = '5700';
 
+    /** Money paid for a customer, waiting to be recharged on their invoice. */
+    private const RECOVERABLE_ACCOUNT = '1150';
+
     /**
      * What must be true before a crossing may move on.
      *
@@ -164,13 +167,23 @@ final class BorderCrossing
             '%s is cleared%s.%s',
             $crossing['reference'],
             $waited === null ? '' : sprintf(' after %s at the post', self::readableHours($waited)),
-            $posted > 0 ? sprintf(' %s of charges went to the ledger.', Settings::money($posted)) : ''
+            // Shown in the currency the charges were paid in, as they were booked.
+            $posted > 0 ? sprintf(' %s of charges went to the ledger.', Currency::format($posted, (string) ($crossing['currency'] ?: Currency::base()))) : ''
         );
     }
 
     private static function depart(PDO $db, int $id, array $crossing): string
     {
-        $db->prepare('UPDATE border_crossings SET released_at = COALESCE(released_at, NOW()), departed_at = COALESCE(departed_at, NOW()), hold_reason = NULL WHERE id = ?')->execute([$id]);
+        // Released is not gone: when the trip has a stop at this post, the truck
+        // has left when its driver presses "Leaving" there, not at this click.
+        $stop = null;
+        if (!empty($crossing['trip_id'])) {
+            $post = $db->prepare('SELECT post_name FROM border_posts WHERE id = ?');
+            $post->execute([(int) $crossing['border_post_id']]);
+            $stop = self::stopFor((int) $crossing['trip_id'], (string) $post->fetchColumn());
+        }
+        $departed = $stop === null ? date('Y-m-d H:i:s') : ($stop['departed_at'] ?: null);
+        $db->prepare('UPDATE border_crossings SET released_at = COALESCE(released_at, NOW()), departed_at = COALESCE(departed_at, ?), hold_reason = NULL WHERE id = ?')->execute([$departed, $id]);
         if (!empty($crossing['shipment_id'])) {
             $db->prepare("UPDATE shipments SET status = 'released' WHERE id = ? AND deleted_at IS NULL AND status NOT IN ('delivered', 'returned', 'cancelled')")->execute([(int) $crossing['shipment_id']]);
             // Released at a border half way along: the truck drives on, so the load
@@ -215,9 +228,13 @@ final class BorderCrossing
         // Charges are booked exactly as paid, in the crossing's own currency:
         // KES at Malaba go into the KES books, RWF at Gatuna into the RWF books.
         // Nothing is converted.
+        // Taxes paid for the customer are not our cost: they wait in
+        // "Disbursements recoverable" until their invoice claims them back.
         $byAccount = [];
         foreach ($charges as $charge) {
-            $code = self::CHARGE_ACCOUNTS[(string) $charge['charge_type']] ?? self::FALLBACK_ACCOUNT;
+            $code = ($charge['paid_for'] ?? 'us') === 'customer'
+                ? self::RECOVERABLE_ACCOUNT
+                : (self::CHARGE_ACCOUNTS[(string) $charge['charge_type']] ?? self::FALLBACK_ACCOUNT);
             $byAccount[$code] = round(($byAccount[$code] ?? 0) + (float) $charge['amount'], 2);
         }
 
@@ -251,7 +268,69 @@ final class BorderCrossing
             strtoupper(trim((string) ($crossing['currency'] ?? ''))) ?: Currency::base()
         );
 
+        self::recharge($crossing, $charges);
+
         return $total;
+    }
+
+    /**
+     * The charges paid for the customer become one disbursement on the
+     * clearance, so the invoice claims them back at cost. It is already in the
+     * books through the clearance, so the disbursement itself posts nothing.
+     *
+     * @param array<string, mixed> $crossing
+     * @param list<array<string, mixed>> $charges
+     */
+    private static function recharge(array $crossing, array $charges): void
+    {
+        $db = Database::connection();
+        $id = (int) $crossing['id'];
+        $theirs = array_values(array_filter($charges, static fn (array $c): bool => ($c['paid_for'] ?? 'us') === 'customer' && (float) $c['amount'] > 0));
+        $amount = round(array_sum(array_map(static fn (array $c): float => (float) $c['amount'], $theirs)), 2);
+
+        $existing = $db->prepare('SELECT id, status FROM disbursements WHERE crossing_id = ? AND deleted_at IS NULL ORDER BY id LIMIT 1');
+        $existing->execute([$id]);
+        $current = $existing->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        if ($amount <= 0) {
+            if ($current !== null && $current['status'] === 'pending') {
+                $db->prepare('UPDATE disbursements SET deleted_at = NOW() WHERE id = ?')->execute([(int) $current['id']]);
+            }
+            return;
+        }
+        // Already on an invoice or settled: the paper trail stays as it was.
+        if ($current !== null && $current['status'] !== 'pending') {
+            return;
+        }
+
+        $owner = $db->prepare('SELECT COALESCE(s.customer_id, t.customer_id) FROM border_crossings bc LEFT JOIN shipments s ON s.id = bc.shipment_id LEFT JOIN trips t ON t.id = bc.trip_id WHERE bc.id = ?');
+        $owner->execute([$id]);
+        $customerId = (int) $owner->fetchColumn();
+        if ($customerId <= 0) {
+            return;
+        }
+
+        $post = self::postName((int) $crossing['border_post_id']);
+        $what = implode(', ', array_map(static fn (array $c): string => trim((string) ($c['description'] ?: $c['charge_type'])), $theirs));
+        $description = mb_substr(sprintf('%s at %s, declaration %s (%s)', $what, $post, $crossing['declaration_no'] ?: $crossing['reference'], $crossing['reference']), 0, 255);
+        $receipts = implode(', ', array_filter(array_map(static fn (array $c): string => trim((string) $c['receipt_no']), $theirs)));
+        $values = [
+            $customerId, $crossing['trip_id'] ?: null, $crossing['shipment_id'] ?: null, $crossing['clearing_agent_id'] ?: null,
+            'Customs duty', $description, $amount, strtoupper((string) ($crossing['currency'] ?: Currency::base())),
+            mb_substr($receipts ?: (string) $crossing['declaration_no'], 0, 80), date('Y-m-d', (int) strtotime((string) $crossing['cleared_at'])),
+        ];
+
+        if ($current !== null) {
+            $db->prepare('UPDATE disbursements SET customer_id = ?, trip_id = ?, shipment_id = ?, supplier_id = ?, category = ?, description = ?, amount = ?, currency = ?, reference = ?, paid_at = ? WHERE id = ?')
+               ->execute([...$values, (int) $current['id']]);
+            return;
+        }
+
+        $code = Reference::next('DSB', 'disbursements', 'disbursement_code');
+        $db->prepare("INSERT INTO disbursements (disbursement_code, customer_id, trip_id, shipment_id, supplier_id, category, description, amount, currency, reference, paid_at, method, status, crossing_id, notes)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'bank_transfer', 'pending', ?, ?)")
+           ->execute([$code, ...$values, $id, sprintf('Raised by clearance %s: taxes paid for the customer, to recharge at cost.', $crossing['reference'])]);
+        AuditLog::record('disbursement.from_clearance', 'disbursements', $code, null, ['crossing' => $crossing['reference'], 'amount' => $amount]);
     }
 
     /** Keeps the charge total on the crossing itself, in its own currency. */
@@ -421,6 +500,93 @@ final class BorderCrossing
         }
 
         return sprintf('%s days', rtrim(rtrim(number_format($hours / 24, 1, '.', ''), '0'), '.'));
+    }
+
+    /**
+     * A paper the agent sent, once recorded, fills the number it carries on
+     * the clearance: the declaration number (and when it was lodged), the T1
+     * bond number. Only an empty field, or one still holding this paper's old
+     * number, is written: anything typed by hand stays.
+     */
+    public static function fillFromDocument(int $crossingId, string $type, string $number, ?string $issued, string $previousNumber = ''): void
+    {
+        $number = trim($number);
+        $column = match ($type) {
+            'Customs declaration' => 'declaration_no',
+            'T1 transit bond' => 'transit_bond_no',
+            default => null,
+        };
+        if ($column === null || $number === '') {
+            return;
+        }
+        Database::connection()->prepare(
+            "UPDATE border_crossings SET {$column} = ? WHERE id = ? AND (COALESCE({$column}, '') = '' OR {$column} = ?)"
+        )->execute([$number, $crossingId, trim($previousNumber)]);
+
+        if ($column === 'declaration_no' && $issued !== null && $issued !== '') {
+            Database::connection()->prepare('UPDATE border_crossings SET lodged_at = COALESCE(lodged_at, ?) WHERE id = ?')
+                ->execute([substr($issued, 0, 10) . ' 00:00:00', $crossingId]);
+        }
+    }
+
+    /**
+     * The times the driver gave on his phone at this border ("I have arrived",
+     * "Leaving") fill the clearance's arrival and departure, when empty.
+     */
+    public static function timesFromStops(int $crossingId): void
+    {
+        $db = Database::connection();
+        $crossing = $db->prepare('SELECT bc.id, bc.trip_id, bc.arrived_at, bc.departed_at, bp.post_name FROM border_crossings bc LEFT JOIN border_posts bp ON bp.id = bc.border_post_id WHERE bc.id = ?');
+        $crossing->execute([$crossingId]);
+        $c = $crossing->fetch(PDO::FETCH_ASSOC);
+        if ($c === false || empty($c['trip_id']) || (!empty($c['arrived_at']) && !empty($c['departed_at']))) {
+            return;
+        }
+        $stop = self::stopFor((int) $c['trip_id'], (string) $c['post_name']);
+        if ($stop === null) {
+            return;
+        }
+        $db->prepare('UPDATE border_crossings SET arrived_at = COALESCE(arrived_at, ?), departed_at = COALESCE(departed_at, ?) WHERE id = ?')
+            ->execute([$stop['actual_arrival_at'] ?: null, $stop['departed_at'] ?: null, $crossingId]);
+    }
+
+    /** The driver reached or left a stop: the clearance at that border, if there is one, takes the time. */
+    public static function stopReported(int $tripId, string $stopName): void
+    {
+        $crossings = Database::connection()->prepare('SELECT bc.id, bp.post_name FROM border_crossings bc LEFT JOIN border_posts bp ON bp.id = bc.border_post_id WHERE bc.trip_id = ? AND bc.deleted_at IS NULL');
+        $crossings->execute([$tripId]);
+        foreach ($crossings->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            if (self::sameBorder((string) $c['post_name'], $stopName)) {
+                self::timesFromStops((int) $c['id']);
+            }
+        }
+    }
+
+    /** @return array{actual_arrival_at: ?string, departed_at: ?string}|null the trip's stop at this border post */
+    private static function stopFor(int $tripId, string $postName): ?array
+    {
+        $stops = Database::connection()->prepare("SELECT location_name, actual_arrival_at, departed_at FROM trip_stops WHERE trip_id = ? AND stop_type = 'checkpoint' ORDER BY stop_sequence, id");
+        $stops->execute([$tripId]);
+        foreach ($stops->fetchAll(PDO::FETCH_ASSOC) as $stop) {
+            if (self::sameBorder($postName, (string) $stop['location_name'])) {
+                return $stop;
+            }
+        }
+
+        return null;
+    }
+
+    /** "Gatuna / Katuna" and "Gatuna border (Uganda / Rwanda)" are the same place. */
+    private static function sameBorder(string $postName, string $stopName): bool
+    {
+        $stop = strtolower($stopName);
+        foreach (preg_split('~[\s/,()-]+~', strtolower($postName)) ?: [] as $word) {
+            if (strlen($word) >= 4 && str_contains($stop, $word)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** "the T1 and the packing list" rather than "T1, packing list". */

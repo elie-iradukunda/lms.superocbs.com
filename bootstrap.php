@@ -356,10 +356,10 @@ function navigation(): array
         ['label' => 'Transport', 'icon' => 'map-pin', 'id' => 'transportMenu', 'items' => [
             // Short labels: the sidebar is narrow, and a name that wraps onto two
             // lines is hard to scan. The page itself still carries the full title.
-            ['requests', 'Transport requests'], ['journeys', 'Journeys'], ['trips', 'Trips'], ['shipments', 'Shipments'], ['shipment_documents', 'Shipment papers'], ['pre_dispatch_checks', 'Dispatch checks'], ['deliveries', 'Deliveries'], ['crossings', 'Customs clearance'], ['clearance_documents', 'Customs documents'], ['clearance_inspections', 'Inspections'], ['clearance_payments', 'Customs payments'], ['clearance_releases', 'Customs releases'], ['containers', 'Containers'], ['border_posts', 'Border posts'],
+            ['requests', 'Transport requests'], ['journeys', 'Journeys'], ['trips', 'Trips'], ['shipments', 'Shipments'], ['shipment_documents', 'Shipment papers'], ['pre_dispatch_checks', 'Dispatch checks'], ['support_requests', 'Driver support'], ['deliveries', 'Deliveries'], ['crossings', 'Customs clearance'], ['clearance_documents', 'Customs documents'], ['clearance_inspections', 'Inspections'], ['clearance_payments', 'Customs payments'], ['clearance_releases', 'Customs releases'], ['containers', 'Containers'], ['border_posts', 'Border posts'],
         ]],
         ['label' => 'Commercial', 'icon' => 'briefcase', 'id' => 'commercialMenu', 'items' => [
-            ['customers', 'Customers'], ['rates', 'Rate cards'], ['invoices', 'Invoices'], ['payments', 'Payments received'], ['disbursements', 'Disbursements'],
+            ['customers', 'Customers'], ['rates', 'Rate cards'], ['price_offers', 'Price offers'], ['invoices', 'Invoices'], ['payments', 'Payments received'], ['disbursements', 'Disbursements'],
         ]],
         ['label' => 'Finance', 'icon' => 'credit-card', 'id' => 'financeMenu', 'items' => [
             ['fuel', 'Fuel management'], ['expenses', 'Trip expenses'], ['supplier_bills', 'Supplier bills'], ['supplier_payments', 'Supplier payments'],

@@ -207,6 +207,63 @@ final class PaymentMethod
         return $row === null ? '' : self::describe($row);
     }
 
+    /**
+     * The money this account held when the company started, as one journal
+     * entry: Dr the account, Cr retained earnings, in the account's currency.
+     * Saving the method again replaces the entry; clearing the amount removes it.
+     */
+    public static function postOpening(int $id): void
+    {
+        $statement = Database::connection()->prepare(
+            'SELECT pm.*, a.account_code FROM payment_methods pm
+               LEFT JOIN gl_accounts a ON a.id = pm.gl_account_id
+              WHERE pm.id = ?'
+        );
+        $statement->execute([$id]);
+        $method = $statement->fetch(PDO::FETCH_ASSOC);
+
+        $amount = round((float) ($method['opening_balance'] ?? 0), 2);
+        if ($method === false || $method['deleted_at'] !== null || $amount <= 0 || empty($method['account_code'])) {
+            Posting::unpost(self::OPENING_SOURCE, $id);
+            return;
+        }
+
+        $date = (string) ($method['opening_date'] ?: date('Y-m-d'));
+        Ledger::post(
+            $date,
+            'Opening balance of ' . $method['method_name'],
+            [
+                ['account' => (string) $method['account_code'], 'debit' => $amount, 'description' => 'Opening balance'],
+                ['account' => '3100', 'credit' => $amount, 'description' => 'Opening balance of ' . $method['method_name']],
+            ],
+            self::OPENING_SOURCE,
+            $id,
+            'OPENING-' . strtoupper((string) $method['method_key']),
+            (string) $method['method_name'],
+            (string) ($method['currency'] ?: Currency::base())
+        );
+    }
+
+    /**
+     * Why money in one currency cannot go through this method, or null.
+     * A method with no currency of its own takes any.
+     */
+    public static function currencyError(string $methodKey, string $currency): ?string
+    {
+        $method = self::find($methodKey);
+        $own = strtoupper(trim((string) ($method['currency'] ?? '')));
+        $currency = strtoupper(trim($currency));
+
+        if ($method === null || $own === '' || $currency === '' || $own === $currency) {
+            return null;
+        }
+
+        return sprintf('%s holds %s, but this amount is in %s. Choose the account the %s was paid from or into, or add it under Accounting, Payment methods.',
+            $method['method_name'], $own, $currency, $currency);
+    }
+
+    public const OPENING_SOURCE = 'method_opening';
+
     public static function flush(): void
     {
         self::$cache = null;

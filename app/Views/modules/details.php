@@ -41,6 +41,12 @@ switch ($moduleKey) {
             'box'
         );
         $add('Planned arrival', (string) $record['planned_arrival_at'], 'clock');
+        // How far the truck has come, from the clock at the start and the latest stop reading.
+        $distance = \Models\TripProgress::distance((int) $record['id']);
+        if ($distance['start_km'] !== null) {
+            $add($distance['end_km'] !== null ? 'Distance driven' : 'Driven so far',
+                number_format((int) $distance['driven']) . ' km' . ($distance['last_place'] && $distance['last_place'] !== 'the start' && $distance['end_km'] === null ? ' · at ' . $distance['last_place'] : ''), 'activity');
+        }
         break;
     case 'shipments':
         $add('Cargo', (string) $record['cargo_description'], 'box');
@@ -51,7 +57,7 @@ switch ($moduleKey) {
     case 'deliveries':
         $add('Recipient', (string) $record['recipient_name'], 'user');
         $add('Attempt', (string) $record['attempt_number'], 'repeat');
-        $add('Delivered', (string) $record['delivered_at'], 'check');
+        $add('Delivered', $record['delivered_at'] ? date('d M Y, H:i', (int) strtotime((string) $record['delivered_at'])) : '', 'check');
         $add('Proof', $record['proof_file'] ? 'Attached' : 'Missing', 'paperclip');
         break;
     case 'invoices':
@@ -115,7 +121,8 @@ switch ($moduleKey) {
 
 // Approval and rejection facts, shown wherever the record carries them.
 $approvalNotes = [];
-if (array_key_exists('approved_at', $record) && $record['approved_at'] !== null) {
+// Only where someone decides: on a clearance, approved_at is customs' review clock, shown with the other times.
+if (array_key_exists('approved_at', $record) && array_key_exists('approved_by', $record) && $record['approved_at'] !== null) {
     $approver = '';
     if (!empty($record['approved_by'])) {
         $approver = (string) (\Core\Database::connection()->query('SELECT full_name FROM users WHERE id = ' . (int) $record['approved_by'])->fetchColumn() ?: '');
@@ -174,20 +181,44 @@ if (!empty($record['rejection_reason'])) {
   }));
   ?>
 
-  <?php if (($actions !== [] && can_approve($moduleKey)) || $links !== []): ?>
+  <?php
+  // Steps someone else takes: say who, rather than leaving the buttons out unexplained.
+  $whoActs = [];
+  if ($actions !== [] && !can_approve($moduleKey)) {
+      $people = \Core\Database::connection()->prepare(
+          "SELECT r.role_name, GROUP_CONCAT(DISTINCT u.full_name ORDER BY u.full_name SEPARATOR ', ') AS names
+             FROM role_permissions p
+             JOIN roles r ON r.id = p.role_id
+             LEFT JOIN users u ON u.role_id = r.id AND u.deleted_at IS NULL AND u.status = 'active'
+            WHERE p.permission_key = ? AND p.can_approve = 1 AND r.role_key <> 'super_admin'
+            GROUP BY r.id, r.role_name ORDER BY r.id"
+      );
+      $people->execute([$moduleKey]);
+      foreach ($people->fetchAll(PDO::FETCH_ASSOC) as $who) {
+          // A handful of names helps; every driver in the fleet does not.
+          $names = $who['names'] ? explode(', ', (string) $who['names']) : [];
+          $whoActs[] = $who['role_name'] . ($names !== [] && count($names) <= 3 ? ' (' . implode(', ', $names) . ')' : '');
+      }
+  }
+  ?>
+  <?php if (($actions !== [] && can_approve($moduleKey)) || $links !== [] || $whoActs !== []): ?>
     <div class="card shadow-sm lms-action-bar">
       <div class="card-body">
         <div class="lms-action-bar-inner">
           <div>
             <strong>What happens next</strong>
             <p class="small text-muted mb-0">These buttons also update everything connected to this record.</p>
+            <?php if ($whoActs !== []): ?>
+              <p class="small mb-0 mt-1"><i class="fe fe-user-check fe-12 mr-1"></i>The next step (<?= e(implode(', ', array_map(static fn ($key) => $module['actions'][$key]['label'] ?? ucfirst($key), array_keys($actions)))) ?>) is taken by: <strong><?= e(implode('; ', $whoActs)) ?></strong>.</p>
+            <?php endif; ?>
           </div>
           <div class="lms-action-buttons">
             <?php foreach ($links as $link): ?>
               <?php $query = []; ?>
               <?php foreach ($link['carry'] ?? [] as $param => $column) { $query[$param] = $record[$column] ?? null; } ?>
               <?php // ':id' in a route stands for this record, for pages that belong to it (a delivery note). ?>
-              <?php $route = is_array($link['route']) ? array_map(static fn ($part) => $part === ':id' ? (string) $record['id'] : $part, $link['route']) : $link['route']; ?>
+              <?php // ':trip_id' and the like stand for that column of this record. ?>
+              <?php $route = is_array($link['route']) ? array_map(static fn ($part) => is_string($part) && str_starts_with($part, ':') ? (string) ($record[substr($part, 1)] ?? '') : $part, $link['route']) : $link['route']; ?>
               <?php if (($link['method'] ?? 'get') === 'post'): ?>
                 <?php // A link that creates something (an invoice from a trip) must be a POST with its token. ?>
                 <form method="post" action="<?= url($route, $query) ?>" class="d-inline">
@@ -208,9 +239,25 @@ if (!empty($record['rejection_reason'])) {
               <?php
               $spec = $module['actions'][$actionKey] ?? [];
               $label = $spec['label'] ?? ucfirst($actionKey);
+              foreach ($spec['label_when_set'] ?? [] as $field => $other) {
+                  if (!empty($record[$field])) {
+                      $label = $other;
+                  }
+              }
               $buttonTone = $spec['tone'] ?? 'primary';
               $needsReason = !empty($rule['needs_reason']);
               ?>
+              <?php if (!empty($spec['page'])): ?>
+                <?php // An action with a page of its own first: the email to see and edit before it goes. ?>
+                <a class="btn btn-<?= e($buttonTone) ?>" href="<?= url([$moduleKey, $record['id'], $spec['page']]) ?>"><?= e($label) ?></a>
+                <?php continue; ?>
+              <?php endif; ?>
+              <?php if (!empty($spec['form'])): ?>
+                <?php // An action that asks for a few fields first opens them in a small window. ?>
+                <button type="button" class="btn btn-<?= e($buttonTone) ?>" data-toggle="modal" data-target="#actionForm-<?= e($actionKey) ?>"><?= e($label) ?></button>
+                <?php $actionForms[$actionKey] = $spec + ['label' => $label]; ?>
+                <?php continue; ?>
+              <?php endif; ?>
               <form method="post" action="<?= url([$moduleKey, $record['id'], 'action', $actionKey]) ?>" class="d-inline <?= $needsReason ? 'reason-form' : '' ?>" data-reason-title="<?= e($label) ?>">
                 <?= csrf_field() ?>
                 <?php if ($needsReason): ?><input type="hidden" name="reason"><?php endif; ?>
@@ -222,6 +269,67 @@ if (!empty($record['rejection_reason'])) {
       </div>
     </div>
   <?php endif; ?>
+
+  <?php foreach ($actionForms ?? [] as $formKey => $formSpec): ?>
+    <div class="modal fade" id="actionForm-<?= e($formKey) ?>" tabindex="-1" role="dialog" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content">
+      <form method="post" action="<?= url([$moduleKey, $record['id'], 'action', $formKey]) ?>">
+        <?= csrf_field() ?>
+        <div class="modal-header">
+          <div>
+            <small class="text-muted"><?= e((string) ($record[$module['code']] ?? '')) ?></small>
+            <h5 class="modal-title"><?= e($formSpec['form_title'] ?? $formSpec['label']) ?></h5>
+          </div>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+        </div>
+        <div class="modal-body">
+          <div class="row">
+            <?php foreach ($formSpec['form'] as $name): ?>
+              <?php
+              $field = $module['fields'][$name] ?? null;
+              if ($field === null) {
+                  continue;
+              }
+              unset($field['readonly']);
+              $value = $record[$name] ?? '';
+              // Money given starts as the amount asked for, in its currency.
+              if ($name === 'amount_given') {
+                  $value = $value !== '' && $value !== null ? $value : ($record['amount_requested'] ?? '');
+                  $field['suffix'] = (string) ($record['currency'] ?? '');
+              }
+              require __DIR__ . '/../partials/field.php';
+              ?>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-<?= e($formSpec['tone'] ?? 'primary') ?>"><?= e($formSpec['form_submit'] ?? $formSpec['label']) ?></button>
+        </div>
+      </form>
+    </div></div></div>
+  <?php endforeach; ?>
+
+  <?php
+  // A driver reads his trip here; what he does on the road is on My trips.
+  if ($moduleKey === 'trips' && current_role() === 'driver'): ?>
+    <div class="alert alert-info d-flex flex-wrap align-items-center justify-content-between" style="gap: 10px">
+      <span><i class="fe fe-info mr-2"></i>This trip is planned by the office. Start it, and mark each stop as you reach it, from My trips.</span>
+      <a class="btn btn-sm btn-primary" href="<?= url('my-trips') ?>"><i class="fe fe-truck fe-12 mr-1"></i>My trips</a>
+    </div>
+  <?php endif;
+
+  // Before a truck leaves: everything the system checked, on the check itself
+  // and on the trip, next to the Dispatch button.
+  $analysis = null;
+  if ($moduleKey === 'pre_dispatch_checks' && !empty($record['shipment_id'])) {
+      $analysis = \Models\DispatchReadiness::forShipment((int) $record['shipment_id']);
+  } elseif ($moduleKey === 'trips' && in_array((string) ($record['status'] ?? ''), ['requested', 'approved', 'loading'], true)) {
+      $analysis = \Models\DispatchReadiness::forTrip((int) $record['id']);
+  }
+  if ($analysis !== null) {
+      require __DIR__ . '/../partials/readiness.php';
+  }
+  ?>
 
   <?php if ($highlights !== []): ?>
     <div class="lms-highlights">
@@ -301,6 +409,12 @@ if (!empty($record['rejection_reason'])) {
         </section>
       <?php endforeach; ?>
 
+      <?php
+      // The line editor (stops, invoice lines, bill lines, parts) and the
+      // related lists are wide tables: they are drawn below, across the full
+      // width of the page, instead of in the narrow column beside History.
+      ob_start();
+      ?>
       <?php if (!empty($module['lines'])): ?>
         <?php $lineSpec = $module['lines']; ?>
         <section class="card shadow-sm lms-section">
@@ -322,7 +436,7 @@ if (!empty($record['rejection_reason'])) {
                         <?php foreach ($lineSpec['columns'] as $column => $spec): ?>
                           <th><?= e($spec['label']) ?><?= !empty($spec['required']) ? ' <span class="lms-required">*</span>' : '' ?></th>
                         <?php endforeach; ?>
-                        <?php if (isset($lineSpec['total_column'])): ?><th class="text-right">Line total</th><?php endif; ?>
+                        <?php if (isset($lineSpec['total_column']) && !isset($lineSpec['line_amount'])): ?><th class="text-right">Line total</th><?php endif; ?>
                         <th></th>
                       </tr>
                     </thead>
@@ -362,7 +476,7 @@ if (!empty($record['rejection_reason'])) {
                               <?php endif; ?>
                             </td>
                           <?php endforeach; ?>
-                          <?php if (isset($lineSpec['total_column'])): ?><td class="text-right align-middle lms-line-total"><?= isset($line['line_total']) ? e(money((float) $line['line_total'], true)) : '' ?></td><?php endif; ?>
+                          <?php if (isset($lineSpec['total_column']) && !isset($lineSpec['line_amount'])): ?><td class="text-right align-middle lms-line-total"><?= isset($line['line_total']) ? e(money((float) $line['line_total'], true)) : '' ?></td><?php endif; ?>
                           <td class="text-right align-middle"><button type="button" class="btn btn-link btn-sm text-danger p-0 lms-line-clear" title="Clear this line">&times;</button></td>
                         </tr>
                       <?php endforeach; ?>
@@ -388,7 +502,16 @@ if (!empty($record['rejection_reason'])) {
             <?php else: ?>
               <div class="table-responsive"><table class="table table-sm">
                 <thead><tr><?php foreach ($lineSpec['columns'] as $spec): ?><th><?= e($spec['label']) ?></th><?php endforeach; ?></tr></thead>
-                <tbody><?php foreach ($lines as $line): ?><tr><?php foreach ($lineSpec['columns'] as $column => $spec): ?><td><?= e((string) ($line[$column] ?? '')) ?></td><?php endforeach; ?></tr><?php endforeach; ?></tbody>
+                <tbody><?php foreach ($lines as $line): ?><tr><?php foreach ($lineSpec['columns'] as $column => $spec): ?><?php
+                  // Read as words and dates, not stored codes.
+                  $raw = (string) ($line[$column] ?? '');
+                  $shown = match (true) {
+                      $raw === '' => '—',
+                      ($spec['type'] ?? '') === 'select' => (string) ($spec['options'][$raw] ?? \Models\Schema::label($raw)),
+                      ($spec['type'] ?? '') === 'datetime' => date('d M Y, H:i', (int) strtotime($raw)),
+                      default => $raw,
+                  };
+                  ?><td><?= e($shown) ?></td><?php endforeach; ?></tr><?php endforeach; ?></tbody>
               </table></div>
             <?php endif; ?>
           </div>
@@ -443,6 +566,7 @@ if (!empty($record['rejection_reason'])) {
           </div>
         </section>
       <?php endforeach; ?>
+      <?php $wideSections = (string) ob_get_clean(); ?>
     </div>
 
     <div class="col-xl-4">
@@ -492,7 +616,13 @@ if (!empty($record['rejection_reason'])) {
               <div class="lms-timeline-item">
                 <span class="lms-timeline-dot"></span>
                 <div>
-                  <strong><?= e(ucfirst(str_replace(['.', '_'], ' ', (string) $entry['action_name']))) ?></strong>
+                  <?php
+                  // "workflow.crossings.clear" reads as the button that was pressed: "Mark cleared".
+                  $actionName = (string) $entry['action_name'];
+                  $parts = explode('.', $actionName);
+                  $pressed = count($parts) === 3 && $parts[0] === 'workflow' ? ($module['actions'][$parts[2]]['label'] ?? null) : null;
+                  ?>
+                  <strong><?= e($pressed ?? ucfirst(str_replace(['.', '_'], ' ', $actionName))) ?></strong>
                   <small class="d-block text-muted"><?= e($entry['actor']) ?> &middot; <?= e(time_ago($entry['created_at'])) ?></small>
                   <?php if (!empty($entry['reason'])): ?><em class="d-block small"><?= e($entry['reason']) ?></em><?php endif; ?>
                 </div>
@@ -503,5 +633,11 @@ if (!empty($record['rejection_reason'])) {
       </div>
     </div>
   </div>
+
+  <?php if (trim($wideSections) !== ''): ?>
+    <div class="row">
+      <div class="col-12 lms-wide-sections"><?= $wideSections ?></div>
+    </div>
+  <?php endif; ?>
 </div>
 <?php require __DIR__ . '/../layouts/footer.php'; ?>

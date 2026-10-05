@@ -80,6 +80,16 @@ final class Workflow
         'disbursements' => [
             'write_off' => ['from' => ['pending'], 'to' => 'written_off', 'needs_reason' => true],
         ],
+        'support_requests' => [
+            'acknowledge' => ['from' => ['open'], 'to' => 'in_progress'],
+            'resolve' => ['from' => ['open', 'in_progress'], 'to' => 'resolved'],
+            'reject' => ['from' => ['open', 'in_progress'], 'to' => 'rejected', 'needs_reason' => true],
+        ],
+        'price_offers' => [
+            'send' => ['from' => ['draft', 'sent'], 'to' => 'sent'],
+            'accept' => ['from' => ['sent'], 'to' => 'accepted'],
+            'decline' => ['from' => ['draft', 'sent'], 'to' => 'declined', 'needs_reason' => true],
+        ],
         'containers' => [
             'unload' => ['from' => ['out_full'], 'to' => 'unloaded'],
             'return' => ['from' => ['out_full', 'unloaded'], 'to' => 'returned'],
@@ -99,6 +109,8 @@ final class Workflow
         'supplier_bills' => ['supplier_bills', 'status'],
         'disbursements' => ['disbursements', 'status'],
         'containers' => ['containers', 'status'],
+        'price_offers' => ['price_offers', 'status'],
+        'support_requests' => ['support_requests', 'status'],
     ];
 
     /** Actions available for a record right now, given its status. */
@@ -113,7 +125,34 @@ final class Workflow
             }
         }
 
+        // The customer accepted the prices on the offer this request came from:
+        // there is nothing left to quote them.
+        if ($module === 'requests' && !empty($record['price_offer_id'])) {
+            unset($available['quote']);
+        }
+
+        foreach (array_keys($available) as $action) {
+            if (self::warehouseHandsOver($module, $action, $record)) {
+                unset($available[$action]);
+            }
+        }
+
         return $available;
+    }
+
+    /**
+     * A driver closes a delivery he hands over himself. Once the load is off
+     * his truck and in a warehouse, the handover (or a failed collection) is
+     * the warehouse's to record, not his.
+     *
+     * @param array<string, mixed> $record
+     */
+    private static function warehouseHandsOver(string $module, string $action, array $record): bool
+    {
+        return $module === 'deliveries'
+            && in_array($action, ['complete', 'fail'], true)
+            && ($record['status'] ?? '') === 'at_destination'
+            && \current_role() === 'driver';
     }
 
     public static function needsReason(string $module, string $action): bool
@@ -210,8 +249,20 @@ final class Workflow
             return 'A trip cannot be completed without a driver on it.';
         }
 
+        if (self::warehouseHandsOver($module, $action, $record)) {
+            return 'This load is in the warehouse now: the warehouse hands it over to the customer and records it.';
+        }
+
         if ($module === 'procurement' && $action === 'receive' && empty($record['warehouse_id'])) {
             return 'Set the receiving warehouse before marking this request received.';
+        }
+
+        if ($module === 'requests' && $action === 'quote' && !empty($record['price_offer_id'])) {
+            return 'The customer already accepted the prices on the offer this request came from. Approve the request instead.';
+        }
+
+        if ($module === 'requests' && $action === 'approve' && $record['quoted_amount'] === null && !empty($record['price_offer_id'])) {
+            return 'This request has no price yet: check the rate card chosen in "Price chosen" and save the request again.';
         }
 
         if ($module === 'invoices' && $action === 'approve' && (float) $record['total_amount'] <= 0) {
@@ -235,6 +286,14 @@ final class Workflow
             if ($handover !== null) {
                 return $handover;
             }
+        }
+
+        if ($module === 'support_requests') {
+            return SupportRequest::guard($action, $record);
+        }
+
+        if ($module === 'price_offers') {
+            return PriceOffer::guard($action, $record);
         }
 
         if ($module === 'supplier_bills' || $module === 'disbursements') {
@@ -349,6 +408,8 @@ final class Workflow
             $module === 'crossings' => BorderCrossing::applied($action, $record, $reason, $actor),
             $module === 'supplier_bills', $module === 'disbursements' => Payables::applied($module, $action, $record, $reason, $actor),
             $module === 'containers' => Containers::applied($action, $record, $reason, $actor),
+            $module === 'price_offers' => PriceOffer::applied($action, $record, $reason, $actor),
+            $module === 'support_requests' => SupportRequest::applied($action, $record, $reason, $actor),
 
             $module === 'deliveries' && $action === 'drop' => self::dropDelivery($db, $record, $code),
             $module === 'deliveries' && $action === 'complete' => self::completeDelivery($db, $record, $code, $actor),
@@ -379,7 +440,7 @@ final class Workflow
         $db->prepare(
             'UPDATE transport_requests
                 SET approved_by = ?, approved_at = NOW(), rejection_reason = NULL,
-                    accepted_at = COALESCE(accepted_at, NOW())
+                    accepted_at = COALESCE(accepted_at, (SELECT o.accepted_at FROM price_offers o WHERE o.id = transport_requests.price_offer_id), NOW())
               WHERE id = ?'
         )->execute([$actor, $id]);
 
@@ -414,7 +475,19 @@ final class Workflow
     {
         $id = (int) $trip['id'];
 
-        $db->prepare('UPDATE trips SET dispatched_at = NOW(), departure_at = COALESCE(departure_at, NOW()) WHERE id = ?')->execute([$id]);
+        // The company releases the truck; the driver only drives it off. When he
+        // starts the trip himself, the dispatcher is whoever passed its check.
+        $dispatcher = \current_user_id();
+        if (\current_role() === 'driver') {
+            $checker = $db->prepare("SELECT pc.checked_by FROM shipment_pre_dispatch_checks pc INNER JOIN shipments s ON s.id = pc.shipment_id
+                                      WHERE s.trip_id = ? AND pc.status = 'ready' AND pc.checked_by IS NOT NULL ORDER BY pc.checked_at DESC, pc.id DESC LIMIT 1");
+            $checker->execute([$id]);
+            $dispatcher = ($found = $checker->fetchColumn()) ? (int) $found : null;
+        }
+        $db->prepare('UPDATE trips SET dispatched_at = NOW(), dispatched_by = ?, departure_at = COALESCE(departure_at, NOW()) WHERE id = ?')->execute([$dispatcher, $id]);
+        // Distances on the trip count from the clock at the start: the driver's
+        // reading when he starts it himself, otherwise the truck's last known one.
+        $db->prepare('UPDATE trips t INNER JOIN vehicles v ON v.id = t.vehicle_id SET t.start_mileage = COALESCE(t.start_mileage, v.mileage) WHERE t.id = ?')->execute([$id]);
         $db->prepare("UPDATE vehicles SET status = 'on_trip' WHERE id = ?")->execute([(int) $trip['vehicle_id']]);
         $db->prepare("UPDATE drivers SET status = 'on_trip' WHERE id = ?")->execute([(int) $trip['driver_id']]);
         $db->prepare("UPDATE shipments SET status = 'in_transit' WHERE trip_id = ? AND deleted_at IS NULL AND status IN ('draft','booked','loaded','released')")->execute([$id]);
@@ -424,9 +497,17 @@ final class Workflow
             $db->prepare("UPDATE transport_requests SET status = 'assigned', trip_id = ? WHERE id = ? AND status IN ('approved', 'assigned')")->execute([$id, (int) $trip['request_id']]);
         }
 
+        // The driver may start the trip himself as he drives out; then it is the
+        // office that needs telling, not him.
+        $byDriver = \current_role() === 'driver';
+        if ($byDriver) {
+            Notifier::toRole('logistics_manager', 'Driver started the trip',
+                sprintf('%s: %s left %s at %s, heading for %s.', $code, \current_user_name() ?: 'The driver', $trip['pickup_location'], date('H:i'), $trip['destination']),
+                'trips', 'success', 'trips', $code);
+        }
         $driverUser = $db->prepare('SELECT user_id FROM drivers WHERE id = ?');
         $driverUser->execute([(int) $trip['driver_id']]);
-        Notifier::toUser(
+        $byDriver || Notifier::toUser(
             $driverUser->fetchColumn() ?: null,
             'Trip dispatched to you',
             sprintf('%s from %s to %s is now in transit.', $code, $trip['pickup_location'], $trip['destination']),
@@ -448,21 +529,33 @@ final class Workflow
         // The sheet the driver works from on the road: the loads behind him, who
         // signs for each one, and the route. A notification he can only read at
         // a screen is no use once the truck has left.
-        $sheet = DriverMail::tripSheet($id);
+        // A driver who starts the trip himself already has the report from when it became ready.
+        $sheet = $byDriver ? false : DriverMail::tripSheet($id);
 
         // The people waiting for the goods hear it too, not just the driver.
         $told = CustomerMail::dispatched($id);
 
+        // The people who run the trip get the full report, prices included.
+        $office = 0;
+        try {
+            $office = TripReport::sendToOffice($id);
+        } catch (\Throwable $exception) {
+            error_log('Trip report could not be sent: ' . $exception->getMessage());
+        }
+
         return sprintf(
-            '%s dispatched. The vehicle and driver are now marked on trip.%s%s%s',
+            '%s dispatched. The vehicle and driver are now marked on trip.%s%s%s%s',
             $code,
             $issued > 0
                 ? sprintf(' %d stock line(s) were issued out of the depot.', $issued)
                 : '',
-            $sheet
-                ? ' The trip sheet was emailed to the driver.'
-                : ' No trip sheet was sent: this driver has no email address on file.',
-            $told > 0 ? sprintf(' %d customer(s) were told their goods are on the way.', $told) : ''
+            $byDriver
+                ? ' You are on your way: press I have arrived at each stop.'
+                : ($sheet
+                    ? ' The trip sheet was emailed to the driver.'
+                    : ' No trip sheet was sent: this driver has no email address on file.'),
+            $told > 0 ? sprintf(' %d customer(s) were told their goods are on the way.', $told) : '',
+            $office > 0 ? sprintf(' The trip report (PDF and Excel) was sent to %d people in the office.', $office) : ''
         );
     }
 
@@ -483,7 +576,17 @@ final class Workflow
         $onTime = self::onTimeVerdict($trip);
         Notifier::toRole('logistics_manager', 'Trip completed', sprintf('%s arrived at %s. %s', $code, $trip['destination'], $onTime), 'trips', 'success', 'trips', $code);
 
-        return sprintf('%s completed. Vehicle and driver released. %s', $code, $onTime);
+        // The report as it stands at the end of the trip: every stop, border,
+        // cost and delivery that happened on the way.
+        $office = 0;
+        try {
+            $office = TripReport::sendToOffice($id, 'completed');
+        } catch (\Throwable $exception) {
+            error_log('Final trip report could not be sent: ' . $exception->getMessage());
+        }
+
+        return sprintf('%s completed. Vehicle and driver released. %s%s', $code, $onTime,
+            $office > 0 ? sprintf(' The final trip report was sent to %d people in the office.', $office) : '');
     }
 
     private static function cancelTrip(PDO $db, array $trip, string $code, string $reason): string
@@ -1113,7 +1216,7 @@ final class Workflow
 
     private static function record(string $table, int $id): ?array
     {
-        $allowed = ['transport_requests', 'trips', 'deliveries', 'expenses', 'purchase_requests', 'maintenance_orders', 'invoices', 'vehicles', 'drivers', 'gl_cheques', 'border_crossings', 'supplier_bills', 'disbursements', 'containers'];
+        $allowed = ['transport_requests', 'trips', 'deliveries', 'expenses', 'purchase_requests', 'maintenance_orders', 'invoices', 'vehicles', 'drivers', 'gl_cheques', 'border_crossings', 'supplier_bills', 'disbursements', 'containers', 'price_offers', 'support_requests'];
         if (!in_array($table, $allowed, true)) {
             throw new \InvalidArgumentException('Unknown workflow table.');
         }

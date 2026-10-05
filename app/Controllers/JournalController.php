@@ -26,6 +26,8 @@ final class JournalController
             'entries' => $entries,
             'search' => (string) ($_GET['q'] ?? ''),
             'source' => (string) ($_GET['source'] ?? ''),
+            'currency' => strtoupper((string) ($_GET['currency'] ?? '')),
+            'currencies' => Ledger::currenciesUsed(),
             'from' => (string) ($_GET['from'] ?? ''),
             'to' => (string) ($_GET['to'] ?? ''),
             'balanced' => Ledger::isBalanced(),

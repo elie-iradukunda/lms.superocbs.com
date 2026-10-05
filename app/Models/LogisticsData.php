@@ -272,6 +272,23 @@ final class LogisticsData
             }
         }
 
+        // A rate card is chosen by its route and price, not by its code.
+        if ($table === 'rate_cards' && $options !== []) {
+            $ids = implode(',', array_map('intval', array_keys($options)));
+            $cards = self::db()->query(
+                "SELECT rc.*, wo.warehouse_name AS from_depot, wd.warehouse_name AS to_depot, c.customer_name
+                   FROM rate_cards rc
+                   LEFT JOIN warehouses wo ON wo.id = rc.origin_warehouse_id
+                   LEFT JOIN warehouses wd ON wd.id = rc.destination_warehouse_id
+                   LEFT JOIN customers c ON c.id = rc.customer_id
+                  WHERE rc.id IN ({$ids})"
+            )->fetchAll();
+            foreach ($cards as $card) {
+                $options[(int) $card['id']] = PriceOffer::cardLabel($card) . ($card['customer_name'] ? ' (only ' . $card['customer_name'] . ')' : '');
+            }
+            asort($options);
+        }
+
         return $options;
     }
 
@@ -699,12 +716,32 @@ final class LogisticsData
         // A shipment is only ready to leave once every final check is ticked.
         // (This used to sit in derive(), where none of these variables exist,
         // so marking a check Ready crashed instead of being validated.)
-        if ($key === 'pre_dispatch_checks' && $value('status') === 'ready') {
-            foreach (['cargo_loaded', 'quantity_verified', 'packaging_verified', 'documents_verified', 'vehicle_verified', 'driver_verified', 'route_verified'] as $field) {
-                if ($value($field) === '' || $value($field) === '0') {
-                    $errors[] = 'Every final pre-dispatch item must be confirmed before marking this shipment ready.';
-                    break;
+        if ($key === 'support_requests') {
+            if ($value('support_type') === 'money' && (float) $value('amount_requested') <= 0) {
+                $errors[] = 'Say how much money you need.';
+            }
+            // A driver asks for support on his own trips only.
+            if (\current_role() === 'driver' && $value('trip_id') !== '') {
+                $owner = self::db()->prepare('SELECT driver_id FROM trips WHERE id = ?');
+                $owner->execute([(int) $value('trip_id')]);
+                if ((int) $owner->fetchColumn() !== (int) \current_driver_id()) {
+                    $errors[] = 'Choose one of your own trips.';
                 }
+            }
+        }
+
+        // Papers, truck, driver and route are checked by the system (see
+        // DispatchReadiness); the person checking confirms what only someone at
+        // the truck can see. "Ready" needs both.
+        if ($key === 'pre_dispatch_checks' && $value('status') === 'ready') {
+            foreach (['cargo_loaded' => 'Cargo loaded', 'quantity_verified' => 'Quantity verified', 'packaging_verified' => 'Packaging verified'] as $field => $label) {
+                if ($value($field) === '' || $value($field) === '0') {
+                    $errors[] = sprintf('Tick "%s" after checking it at the truck, before marking this shipment ready.', $label);
+                }
+            }
+            $analysis = $value('shipment_id') !== '' ? DispatchReadiness::forShipment((int) $value('shipment_id')) : null;
+            foreach ($analysis['failures'] ?? [] as $failure) {
+                $errors[] = 'Not ready: ' . $failure;
             }
         }
 
@@ -774,6 +811,37 @@ final class LogisticsData
             $errors[] = 'Amount paid must be more than zero.';
         }
 
+        // Money leaves or reaches the account it was really paid from or into,
+        // so the account's balance stays true: a USD payment cannot go through
+        // an RWF account.
+        $methodField = match ($key) {
+            'payments', 'supplier_payments', 'disbursements' => 'method',
+            'expenses' => \current_role() === 'driver' ? null : 'payment_method',
+            default => null,
+        };
+        if ($methodField !== null && $value($methodField) !== '') {
+            $currency = match ($key) {
+                'payments' => (string) self::scalar('SELECT currency FROM invoices WHERE id = ?', [(int) $value('invoice_id')]),
+                'supplier_payments' => (string) self::scalar('SELECT currency FROM supplier_bills WHERE id = ?', [(int) $value('bill_id')]),
+                default => $value('currency'),
+            };
+            $mismatch = PaymentMethod::currencyError($value($methodField), $currency);
+            if ($mismatch !== null) {
+                $errors[] = $mismatch;
+            }
+        }
+
+        if ($key === 'payment_methods' && (float) str_replace(',', '', $value('opening_balance')) > 0) {
+            if ($value('gl_account_id') === '') {
+                $errors[] = 'Choose the account it posts to before giving it an opening balance.';
+            } elseif ((int) self::scalar('SELECT is_bank FROM gl_accounts WHERE id = ?', [(int) $value('gl_account_id')]) !== 1) {
+                $errors[] = 'Only a bank, cash or mobile money account takes an opening balance.';
+            }
+            if ($value('opening_date') === '') {
+                $errors[] = 'Give the date of the opening balance.';
+            }
+        }
+
         // A gate pass cannot let out more than is in the bay.
         if ($key === 'storage_releases' && $value('lot_id') !== '' && $value('quantity') !== '') {
             $quantity = (float) str_replace(',', '', $value('quantity'));
@@ -801,6 +869,9 @@ final class LogisticsData
                 if ($out !== '' && $value($field) !== '' && strtotime($value($field)) < strtotime($out)) {
                     $errors[] = "A container cannot be {$word} before it left the port.";
                 }
+            }
+            if ($value('unloaded_at') !== '' && $value('returned_at') !== '' && strtotime($value('returned_at')) < strtotime($value('unloaded_at'))) {
+                $errors[] = 'A container cannot be returned empty before it was unloaded.';
             }
         }
 
@@ -856,6 +927,11 @@ final class LogisticsData
             $value = trim((string) ($input[$name] ?? ''));
 
             if ($value === '' && !empty($field['auto'])) {
+                // A reference the system gives is made once, on creation. An
+                // edit form does not send it, and the record keeps the one it has.
+                if ($id !== null) {
+                    continue;
+                }
                 $value = Reference::next($field['auto'], $module['table'], $name);
             }
 
@@ -1009,7 +1085,24 @@ final class LogisticsData
             }
         }
 
+        if ($key === 'support_requests' && !empty($columns['trip_id'])) {
+            // The driver is the trip's driver, whoever typed the request.
+            $driver = self::db()->prepare('SELECT driver_id FROM trips WHERE id = ?');
+            $driver->execute([(int) $columns['trip_id']]);
+            $columns['driver_id'] = $driver->fetchColumn() ?: null;
+            if (!empty($columns['amount_requested']) && empty($columns['currency'])) {
+                $columns['currency'] = Currency::base();
+            }
+        }
+
         if ($key === 'pre_dispatch_checks') {
+            // The system ticks what it can verify itself, and untick it when it cannot.
+            if (!empty($columns['shipment_id'])) {
+                $analysis = DispatchReadiness::forShipment((int) $columns['shipment_id']);
+                if ($analysis !== null) {
+                    $columns = array_merge($columns, DispatchReadiness::ticks($analysis));
+                }
+            }
             if (($columns['status'] ?? '') === 'ready') {
                 $columns['checked_by'] = \current_user_id();
                 $columns['checked_at'] = date('Y-m-d H:i:s');
@@ -1122,8 +1215,13 @@ final class LogisticsData
         // to know about the pair.
         if ($key === 'rates') {
             $unit = Rate::unitRate($columns);
-            if ($unit > 0 && in_array((string) ($columns['rate_type'] ?? ''), ['per_kg', 'per_m3', 'per_package'], true)) {
+            $basis = (string) ($columns['rate_type'] ?? '');
+            if ($unit > 0 && $basis === 'per_kg') {
+                // "A full truck of 28,000 kg costs 7,000" becomes 0.25 a kg.
                 $columns['rate_amount'] = $unit;
+            } elseif (in_array($basis, ['per_trip', 'per_day'], true) && (float) ($columns['full_load_price'] ?? 0) > 0) {
+                // A full truck's price is the full load's price, whatever it weighs.
+                $columns['rate_amount'] = (float) $columns['full_load_price'];
             }
         }
 
@@ -1150,6 +1248,8 @@ final class LogisticsData
             'requests' => 'requester_id',
             'expenses' => 'submitted_by',
             'payments', 'supplier_payments' => 'recorded_by',
+            'price_offers' => 'created_by',
+            'support_requests' => 'requested_by',
             default => null,
         };
         if ($actor !== null) {
@@ -1268,6 +1368,50 @@ final class LogisticsData
             Lookup::flush();
         }
 
+        // A paper from the agent fills the number it carries on its clearance,
+        // and a clearance takes its arrival and departure from what the driver
+        // reported at that border, so nothing is typed twice.
+        if ($key === 'clearance_documents' && !empty($columns['crossing_id'])) {
+            BorderCrossing::fillFromDocument((int) $columns['crossing_id'], (string) ($columns['document_type'] ?? ''), (string) ($columns['document_no'] ?? ''),
+                isset($columns['issued_on']) ? (string) $columns['issued_on'] : null, (string) ($before['document_no'] ?? ''));
+        }
+        if ($key === 'crossings') {
+            BorderCrossing::timesFromStops($id);
+        }
+
+        // A driver asking for help: whoever he chose, and the logistics
+        // managers, hear about it straight away.
+        if ($key === 'support_requests' && $before === []) {
+            SupportRequest::announce($id);
+        }
+
+        // The last final check passed: the trip is ready, so the driver gets
+        // the full report and can start the trip himself when he leaves.
+        if ($key === 'pre_dispatch_checks' && ($columns['status'] ?? '') === 'ready' && !empty($columns['shipment_id'])) {
+            $trip = self::db()->prepare('SELECT trip_id FROM shipments WHERE id = ?');
+            $trip->execute([(int) $columns['shipment_id']]);
+            $tripId = (int) $trip->fetchColumn();
+            if ($tripId > 0) {
+                DriverMail::tripReady($tripId);
+            }
+        }
+
+        // A request raised from an accepted price offer: the customer has agreed
+        // the prices already, so it is priced from the card they chose as soon
+        // as it is saved, with no second quotation for them to accept. What is
+        // left is our own approval.
+        if ($key === 'requests' && !empty($columns['price_offer_id'])) {
+            Rate::quoteRequest($id, $before);
+            $db->prepare(
+                'UPDATE transport_requests r
+                  INNER JOIN price_offers o ON o.id = r.price_offer_id
+                   LEFT JOIN customers c ON c.id = r.customer_id
+                    SET r.quoted_at = COALESCE(r.quoted_at, o.sent_at, NOW()),
+                        r.accepted_by = COALESCE(NULLIF(r.accepted_by, ""), NULLIF(o.accepted_by, ""), NULLIF(r.requested_by_contact, ""), c.contact_name)
+                  WHERE r.id = ?'
+            )->execute([$id]);
+        }
+
         if ($key === 'vehicles' && !empty($columns['assigned_driver_id'])) {
             // A driver holds one vehicle at a time.
             $release = $db->prepare('UPDATE vehicles SET assigned_driver_id = NULL WHERE assigned_driver_id = ? AND id <> ?');
@@ -1368,6 +1512,11 @@ final class LogisticsData
 
         if ($key === 'disbursements') {
             Payables::tryPost('disbursement', $id);
+        }
+
+        if ($key === 'payment_methods') {
+            PaymentMethod::flush();
+            PaymentMethod::postOpening($id);
         }
 
         if ($key === 'storage_releases' && !empty($columns['lot_id'])) {
@@ -1483,6 +1632,15 @@ final class LogisticsData
 
             $sequence = 0;
             foreach ($rows as $row) {
+                // A tax line given as rate and taxable value: the amount is the
+                // one customs will ask for. A typed amount (from the notice) wins.
+                if ($key === 'crossings' && trim((string) ($row['amount'] ?? '')) === '') {
+                    $rate = (float) str_replace(',', '', (string) ($row['tax_rate'] ?? ''));
+                    $taxable = (float) str_replace(',', '', (string) ($row['taxable_amount'] ?? ''));
+                    if ($rate > 0 && $taxable > 0) {
+                        $row['amount'] = (string) round($taxable * $rate / 100, 2);
+                    }
+                }
                 $values = [$parentId];
                 $blank = true;
                 foreach ($names as $name) {
@@ -1698,6 +1856,10 @@ final class LogisticsData
             Storage::recalculate((int) $record['lot_id']);
         }
 
+        if ($key === 'payment_methods') {
+            Posting::unpost(PaymentMethod::OPENING_SOURCE, $id);
+        }
+
         if ($key === 'lookups') {
             Lookup::flush();
         }
@@ -1903,6 +2065,8 @@ final class LogisticsData
         'storage_lots' => 'lot_code',
         'journeys' => 'journey_code',
         'payment_methods' => 'method_name',
+        'price_offers' => 'offer_code',
+        'rate_cards' => 'rate_code',
     ];
 
     private static function relationAllowed(string $table, string $column): bool

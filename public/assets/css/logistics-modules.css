@@ -129,7 +129,16 @@ body.dark{--lms-line:#3a4149;--lms-muted:#a8b2bb;--lms-ink:#e7ecf0;--lms-surface
 /* --- line item editor ---------------------------------------------------- */
 .lms-lines-table{font-size:.78rem}
 .lms-lines-table thead th{font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:var(--lms-muted);white-space:nowrap}
-.lms-lines-table .form-control-sm{font-size:.78rem}
+.lms-lines-table .form-control-sm{font-size:.82rem}
+/* Every column wide enough to read what is in it; the table scrolls sideways on a phone. */
+.lms-lines-table{min-width:900px}
+.lms-lines-table td{vertical-align:middle}
+.lms-lines-table select.form-control-sm{min-width:150px}
+.lms-lines-table input[type=text].form-control-sm{min-width:170px}
+.lms-lines-table input[type=datetime-local].form-control-sm{min-width:205px}
+.lms-lines-table input[type=date].form-control-sm{min-width:150px}
+.lms-lines-table input[type=number].form-control-sm{min-width:110px}
+.lms-lines-table td:last-child{width:32px}
 .lms-line-clear{font-size:1.1rem;line-height:1}
 
 /* --- timeline ------------------------------------------------------------ */
@@ -457,3 +466,181 @@ body.dark .lms-mt-stops li::before{background:#2b3035}
   .topnav { padding-top: calc(.5rem + env(safe-area-inset-top)); }
   .main-content { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
 }
+
+/* ------------------------------------------------------------------
+   Email to a customer: the letter in an editor, framed as it will look
+   in the inbox (brand bar on top, signature below).
+------------------------------------------------------------------- */
+.lms-mail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #dfe4ea;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.lms-mail-toolbar button {
+  min-width: 34px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #33404c;
+  font-size: 13px;
+  cursor: pointer;
+}
+.lms-mail-toolbar button:hover { background: #f1f4f7; border-color: #dfe4ea; }
+.lms-mail-sep { width: 1px; height: 20px; background: #dfe4ea; margin: 0 4px; }
+.lms-mail-frame {
+  max-width: 760px;
+  margin: 0 auto 16px;
+  background: #fff;
+  border: 1px solid #dfe4ea;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+  font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+}
+.lms-mail-brand { padding: 16px 26px; color: #fff; }
+.lms-mail-brand strong { display: block; font-size: 16px; letter-spacing: .4px; color: #fff; }
+.lms-mail-brand span { display: block; font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; opacity: .82; }
+.lms-mail-body { padding: 22px 26px; }
+.lms-mail-body h1 { margin: 0 0 14px; font-size: 19px; font-weight: 700; color: #18222c; }
+.lms-mail-editor {
+  min-height: 320px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #33404c;
+  outline: none;
+  border-radius: 6px;
+  padding: 4px;
+  margin: -4px;
+}
+.lms-mail-editor:focus { box-shadow: 0 0 0 2px rgba(42, 120, 214, .18); }
+.lms-mail-editor table { width: 100%; }
+.lms-mail-foot { padding: 14px 26px; background: #f7f9fb; border-top: 1px solid #e9edf1; font-size: 11px; color: #8a949e; }
+.lms-mail-compose .lms-form-bar { max-width: 760px; margin-left: auto; margin-right: auto; }
+@media (max-width: 575.98px) {
+  .lms-mail-body { padding: 16px 14px; }
+  .lms-mail-brand, .lms-mail-foot { padding-left: 14px; padding-right: 14px; }
+  .lms-mail-editor table { display: block; overflow-x: auto; }
+}
+.lms-mail-attachments { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 26px 18px; }
+.lms-mail-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #dfe4ea;
+  border-radius: 6px;
+  background: #f7f9fb;
+  color: #22303c;
+  font-size: 13px;
+}
+.lms-mail-attachment:hover { text-decoration: none; border-color: #b9c3ce; color: #18222c; }
+.lms-mail-attachment small { color: #8a949e; }
+
+/* Company seal on Company settings. */
+.lms-seal-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 130px;
+  border: 1px dashed #c9d1da;
+  border-radius: 8px;
+  background: #fff;
+}
+.lms-seal-preview { max-height: 118px; max-width: 100%; }
+.lms-seal-empty { color: #9aa4ad; font-size: 13px; }
+
+/* Report colour on Company settings: swatches, a picker and the code. */
+.lms-swatches { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.lms-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #cfd6de;
+  cursor: pointer;
+  padding: 0;
+}
+.lms-swatch:hover { transform: scale(1.08); }
+.lms-swatch.is-active { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #33404c; }
+.lms-colour-row { display: flex; align-items: center; gap: 8px; }
+.lms-colour-picker { width: 46px; height: 38px; padding: 2px; border: 1px solid #cfd6de; border-radius: 6px; background: #fff; cursor: pointer; }
+.lms-colour-hex { max-width: 120px; text-transform: uppercase; font-family: monospace; }
+.lms-colour-sample { padding: 7px 14px; border-radius: 6px; color: #fff; font-size: 13px; font-weight: 600; }
+.lms-image-logo .lms-seal-preview { max-height: 90px; }
+
+/* Readiness analysis before a trip starts. */
+.lms-readiness { margin-bottom: 1.25rem; overflow: hidden; }
+.lms-readiness-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #e9edf1; }
+.lms-readiness-head h3 { margin: 0 0 2px; font-size: 1rem; font-weight: 700; }
+.lms-readiness-head p { color: #5b6670; font-size: 13px; }
+.lms-readiness.is-ready .lms-readiness-head { background: #edf8f1; }
+.lms-readiness.is-blocked .lms-readiness-head { background: #fdf0f0; }
+.lms-readiness-badge { flex: none; padding: 4px 12px; border-radius: 14px; font-size: 12px; font-weight: 700; color: #fff; }
+.lms-readiness.is-ready .lms-readiness-badge { background: #2f855a; }
+.lms-readiness.is-blocked .lms-readiness-badge { background: #c53030; }
+.lms-readiness-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0; }
+.lms-readiness-group { padding: 12px 18px; border-right: 1px solid #f0f2f5; border-bottom: 1px solid #f0f2f5; }
+.lms-readiness-group h4 { display: flex; justify-content: space-between; margin: 0 0 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: #4a5560; }
+.lms-readiness-group h4 span { font-size: 11px; text-transform: none; letter-spacing: 0; }
+.lms-readiness-group ul { list-style: none; margin: 0; padding: 0; }
+.lms-readiness-group li { display: flex; gap: 8px; padding: 5px 0; font-size: 13px; line-height: 1.35; }
+.lms-readiness-group li i { flex: none; margin-top: 2px; }
+.lms-readiness-group li strong { display: block; font-weight: 600; color: #22303c; }
+.lms-readiness-group li span { display: block; color: #6b7680; font-size: 12px; }
+.lms-readiness-group li.is-ok i { color: #2f855a; }
+.lms-readiness-group li.is-warn i { color: #c27c0e; }
+.lms-readiness-group li.is-fail i { color: #c53030; }
+.lms-readiness-group li.is-fail strong { color: #9b2c2c; }
+.lms-auto-tick { opacity: .75; pointer-events: none; }
+.lms-auto-note { display: block; font-size: 11px; color: #6b7680; margin-top: 2px; }
+.lms-readiness-item { display: flex; gap: 8px; width: 100%; padding: 4px 6px; margin: 0 -6px; border: 0; border-radius: 6px; background: transparent; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.lms-readiness-item:hover, .lms-readiness-item:focus { background: #f2f5f8; outline: none; }
+.lms-readiness-group li { padding: 1px 0; }
+.lms-readiness-group li .lms-readiness-item > i { flex: none; margin-top: 2px; }
+.lms-readiness-group li.is-ok .lms-readiness-item > i { color: #2f855a; }
+.lms-readiness-group li.is-warn .lms-readiness-item > i { color: #c27c0e; }
+.lms-readiness-group li.is-fail .lms-readiness-item > i { color: #c53030; }
+.lms-readiness-clip { font-size: 11px; color: #8a949e; }
+.lms-readiness-state { padding: 10px 12px; border-radius: 6px; margin-bottom: 14px; font-size: 13px; }
+.lms-readiness-state.is-ok { background: #edf8f1; color: #276749; }
+.lms-readiness-state.is-warn { background: #fff8e6; color: #8a5a00; }
+.lms-readiness-state.is-fail { background: #fdf0f0; color: #9b2c2c; }
+.lms-readiness-facts dt { font-weight: 500; color: #6b7680; }
+.lms-readiness-facts dd { font-weight: 600; color: #22303c; }
+.lms-readiness-preview { margin-top: 12px; border: 1px solid #e3e8ee; border-radius: 6px; overflow: hidden; background: #f7f9fb; }
+.lms-readiness-preview iframe { display: block; width: 100%; height: 48vh; border: 0; }
+.lms-readiness-preview img { display: block; max-width: 100%; max-height: 48vh; margin: 0 auto; }
+
+/* My signature on My profile. */
+.lms-sign-current { display: flex; align-items: center; justify-content: center; height: 130px; border: 1px solid #dfe4ea; border-radius: 8px; background: #fff; }
+.lms-sign-current img { max-height: 110px; max-width: 100%; }
+.lms-sign-pad { display: block; width: 100%; max-width: 600px; height: auto; aspect-ratio: 3 / 1; border: 1px dashed #b9c3ce; border-radius: 8px; background: #fff; touch-action: none; cursor: crosshair; }
+
+/* Driver on the road: start, stops, support. */
+.lms-mt-start { font-weight: 700; padding-left: 18px; padding-right: 18px; box-shadow: 0 2px 8px rgba(47, 133, 90, .35); }
+.lms-mt-stop-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+.lms-mt-stop-actions form { margin: 0; }
+.lms-mt-stop-actions .btn { min-height: 38px; }
+.lms-mt-answer { display: block; margin-top: 3px; padding: 6px 8px; border-left: 3px solid #2f855a; background: #f2faf5; color: #22303c; font-size: 12.5px; border-radius: 3px; }
+@media (max-width: 575.98px) {
+  .lms-mt-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .lms-mt-actions .btn, .lms-mt-actions form { flex: 1 1 100%; }
+  .lms-mt-actions form .btn { width: 100%; }
+}
+
+/* Documents to tick under an email to the clearing agent. */
+.lms-mail-choices { max-width: 760px; margin: 0 auto 16px; }
+.lms-mail-choice-group { margin: 10px 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: #77828d; }
+.lms-mail-choice { padding: 3px 0; }

@@ -9,7 +9,8 @@
 $id = 'f_' . $name;
 $inputName = 'f[' . $name . ']';
 $required = !empty($field['required']) && empty($field['auto']);
-$help = $field['help'] ?? '';
+// Forms stay clean: no explanation lines under the fields.
+$help = '';
 $suffix = $field['suffix'] ?? '';
 $readonly = !empty($field['readonly']);
 $width = (int) ($field['width'] ?? 6);

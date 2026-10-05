@@ -16,7 +16,8 @@ $sortLink = static function (string $column) use ($listing, $link): string {
 };
 
 /** One cell, formatted by the column type declared in the schema. */
-$cell = static function (mixed $value, array $spec): string {
+$rowCurrency = null;
+$cell = static function (mixed $value, array $spec) use (&$rowCurrency): string {
     if ($value === null || $value === '') {
         return '<span class="text-muted">' . e($spec['empty'] ?? '—') . '</span>';
     }
@@ -31,7 +32,9 @@ $cell = static function (mixed $value, array $spec): string {
         'code' => '<strong>' . e($value) . '</strong>',
         'badge' => '<span class="badge badge-' . e(\Models\Schema::tone((string) $value)) . '">' . e(\Models\Schema::label((string) $value)) . '</span>',
         'label' => e(\Models\Schema::label((string) $value)),
-        'money' => '<span class="lms-num">' . e(money((float) $value)) . '</span>',
+        // A row that names its currency (a USD rate, a KES fuel receipt) shows its
+        // own money with its own decimals, not the base currency rounded.
+        'money' => '<span class="lms-num">' . e($rowCurrency !== null && $rowCurrency !== '' ? \Models\Currency::format((float) $value, (string) $rowCurrency) : money((float) $value)) . '</span>',
         'number' => '<span class="lms-num">' . e(number_format((float) $value)) . (isset($spec['suffix']) ? ' ' . e($spec['suffix']) : '') . '</span>',
         'decimal' => '<span class="lms-num">' . e(rtrim(rtrim(number_format((float) $value, 2, '.', ','), '0'), '.')) . (isset($spec['suffix']) ? ' ' . e($spec['suffix']) : '') . '</span>',
         'date' => e(date('d M Y', (int) strtotime((string) $value))),
@@ -143,6 +146,7 @@ $cell = static function (mixed $value, array $spec): string {
             <?php endif; ?>
 
             <?php foreach ($rows as $row): ?>
+              <?php $rowCurrency = $row['currency'] ?? null; ?>
               <tr>
                 <?php $firstColumn = true; ?>
                 <?php foreach ($module['list'] as $column => $spec): ?>

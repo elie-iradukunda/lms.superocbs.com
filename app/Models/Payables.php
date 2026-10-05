@@ -314,6 +314,13 @@ final class Payables
             return null;
         }
 
+        // Raised by a clearance: the clearance already booked it (Dr recoverable,
+        // Cr the agent), so posting it again would count the money twice.
+        if (!empty($row['crossing_id'])) {
+            Posting::unpost('disbursement', $id);
+            return null;
+        }
+
         $amount = round((float) $row['amount'], 2);
         if ($amount <= 0) {
             return null;

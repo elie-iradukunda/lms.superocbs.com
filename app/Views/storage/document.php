@@ -45,6 +45,8 @@ $number = $isPass ? $doc['gate_pass_no'] : $doc['lot_code'];
   td { border-bottom: 1px solid var(--line); padding: 8px; vertical-align: top; }
   .num { text-align: right; }
   .big { font-size: 20px; font-weight: 700; }
+  .sign { position: relative; }
+  .seal { position: absolute; right: 8px; bottom: 6px; max-height: 24mm; max-width: 38mm; mix-blend-mode: multiply; transform: rotate(-6deg); }
   .signatures { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 18px; }
   .sign { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 34mm; }
   .line { border-bottom: 1px dotted #9aa4ad; height: 22px; margin-bottom: 2px; font-weight: 600; padding-top: 4px; }
@@ -146,12 +148,12 @@ $number = $isPass ? $doc['gate_pass_no'] : $doc['lot_code'];
 
   <div class="signatures">
     <?php if ($isPass): ?>
-      <div class="sign"><h3>Storekeeper</h3><div class="line"></div><div class="label">Name and signature</div></div>
+      <div class="sign"><h3>Storekeeper</h3><div class="line" style="height:34px;position:relative"><?php if (!empty($signature)): ?><img src="<?= $signature ?>" alt="Signature" style="position:absolute;left:0;bottom:1px;max-height:32px;max-width:60%;mix-blend-mode:multiply"><?php endif; ?></div><div class="label">Name and signature</div><?php if (!empty($company['seal'])): ?><img class="seal" src="<?= $company['seal'] ?>" alt="Company seal"><?php endif; ?></div>
       <div class="sign"><h3>Collected by</h3><div class="line"><?= e((string) $doc['collected_by']) ?></div><div class="label">Name</div><div class="line"></div><div class="label">Signature</div></div>
       <div class="sign"><h3>Gate check</h3><div class="line"></div><div class="label">Guard name and signature</div><div class="line"></div><div class="label">Time out</div></div>
     <?php else: ?>
       <div class="sign"><h3>Delivered by</h3><div class="line"><?= e((string) ($doc['received_from'] ?? '')) ?></div><div class="label">Name</div><div class="line"></div><div class="label">Signature</div></div>
-      <div class="sign"><h3>Received by (storekeeper)</h3><div class="line"></div><div class="label">Name and signature</div></div>
+      <div class="sign"><h3>Received by (storekeeper)</h3><div class="line"></div><div class="label">Name and signature</div><?php if (!empty($company['seal'])): ?><img class="seal" src="<?= $company['seal'] ?>" alt="Company seal"><?php endif; ?></div>
       <div class="sign"><h3>Remarks</h3><div class="line"></div><div class="line"></div></div>
     <?php endif; ?>
   </div>

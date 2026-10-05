@@ -142,6 +142,55 @@ final class Mailer
         $html = $message['html'] ?? self::render($message, $realRecipient, $redirect !== '');
         $text = $message['text'] ?? self::plain($message);
 
+        // Files go by their path under the uploads folder, so a retry from the
+        // outbox attaches the same file again.
+        $attachments = [];
+        foreach ((array) ($message['attachments'] ?? []) as $file) {
+            $relative = self::uploadsRelative((string) ($file['path'] ?? ''));
+            if ($relative !== null) {
+                $attachments[] = ['filename' => (string) ($file['filename'] ?? basename($relative)), 'path' => $relative];
+            }
+        }
+
+        // People copied in, and where replies go: the person who wrote it, when
+        // the email asks for an answer (the agent replying to the logistics
+        // manager). In test mode nobody else is copied.
+        $cc = [];
+        foreach ((array) ($message['cc'] ?? []) as $address) {
+            $address = trim((string) $address);
+            if ($address !== '' && filter_var($address, FILTER_VALIDATE_EMAIL) !== false && strcasecmp($address, $realRecipient) !== 0) {
+                $cc[] = $address;
+            }
+        }
+        $cc = $redirect !== '' ? [] : array_values(array_unique($cc));
+        $replyTo = trim((string) ($message['reply_to'] ?? ''));
+        $replyTo = filter_var($replyTo, FILTER_VALIDATE_EMAIL) !== false ? $replyTo : '';
+
+        if ($attachments !== [] || $cc !== [] || $replyTo !== '') {
+            $statement = self::db()->prepare(
+                'INSERT IGNORE INTO email_outbox
+                    (message_key, category, to_email, to_name, cc_emails, reply_to, user_id, subject, body_html, body_text, attachments, entity_type, entity_id, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "queued")'
+            );
+            $statement->execute([
+                mb_substr($key, 0, 120),
+                self::category((string) ($message['category'] ?? 'notification')),
+                mb_substr($to, 0, 190),
+                $message['to_name'] ?? null,
+                $cc !== [] ? json_encode($cc) : null,
+                $replyTo !== '' ? $replyTo : null,
+                isset($message['user_id']) ? (int) $message['user_id'] : null,
+                $subject,
+                $html,
+                $text,
+                $attachments !== [] ? json_encode($attachments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null,
+                $message['entity_type'] ?? null,
+                $message['entity_id'] ?? null,
+            ]);
+
+            return $statement->rowCount() === 0 ? null : (int) self::db()->lastInsertId();
+        }
+
         $statement = self::db()->prepare(
             'INSERT IGNORE INTO email_outbox
                 (message_key, category, to_email, to_name, user_id, subject, body_html, body_text, entity_type, entity_id, status)
@@ -194,7 +243,22 @@ final class Mailer
             $payload['text'] = $row['body_text'];
         }
 
-        $replyTo = trim((string) \config('mail.reply_to', ''));
+        foreach ((array) json_decode((string) ($row['attachments'] ?? ''), true) as $file) {
+            $path = self::uploadsRoot() . '/' . ltrim((string) ($file['path'] ?? ''), '/');
+            $bytes = is_file($path) ? @file_get_contents($path) : false;
+            if ($bytes === false) {
+                self::mark($id, 'failed', null, 'The attachment ' . ($file['filename'] ?? '') . ' is missing from the server.');
+                return false;
+            }
+            $payload['attachments'][] = ['filename' => (string) $file['filename'], 'content' => base64_encode($bytes)];
+        }
+
+        $cc = array_values(array_filter((array) json_decode((string) ($row['cc_emails'] ?? ''), true)));
+        if ($cc !== []) {
+            $payload['cc'] = $cc;
+        }
+
+        $replyTo = trim((string) ($row['reply_to'] ?? '')) ?: trim((string) \config('mail.reply_to', ''));
         if ($replyTo !== '') {
             $payload['reply_to'] = $replyTo;
         }
@@ -298,6 +362,51 @@ final class Mailer
 
         $heading = $escape($message['heading'] ?? $message['subject'] ?? 'Update');
 
+        // A letter someone edited before sending arrives as HTML already, and is
+        // cleaned again here so nothing unsafe reaches an inbox.
+        $body = isset($message['body_html']) ? self::clean((string) $message['body_html']) : self::content($message);
+
+        // A message that asks for a reply cannot be signed "do not reply".
+        $signature = $escape($message['signature'] ?? self::signature());
+        $redirectNote = $redirected
+            ? '<p style="margin:14px 0 0;padding:10px 12px;background:#fff8e6;border-left:3px solid #e0a800;font-size:12px;color:#6b5600">'
+              . 'Test mode: this message was addressed to <strong>' . $escape($realRecipient)
+              . '</strong> and redirected here.</p>'
+            : '';
+
+        return '<!doctype html><html><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            . '<title>' . $escape($message['subject'] ?? 'Update') . '</title></head>'
+            . '<body style="margin:0;padding:0;background:#f1f4f7;font-family:Segoe UI,Helvetica,Arial,sans-serif">'
+            . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f1f4f7;padding:24px 12px">'
+            . '<tr><td align="center">'
+            . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:580px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 10px rgba(20,30,40,.07)">'
+            . '<tr><td style="background:' . $colour . ';padding:18px 26px">'
+            . '<span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:.4px">' . $escape($company) . '</span>'
+            . '<span style="display:block;color:rgba(255,255,255,.82);font-size:11px;letter-spacing:1.2px;text-transform:uppercase;margin-top:2px">Logistics Management System</span>'
+            . '</td></tr>'
+            . '<tr><td style="padding:26px;font-size:14px;line-height:1.6;color:#33404c">'
+            . '<h1 style="margin:0 0 16px;font-size:19px;line-height:1.35;color:#18222c;font-weight:700">' . $heading . '</h1>'
+            . $body
+            . $redirectNote
+            . '</td></tr>'
+            . '<tr><td style="padding:16px 26px;background:#f7f9fb;border-top:1px solid #e9edf1">'
+            . '<p style="margin:0;font-size:11px;line-height:1.6;color:#8a949e">' . $signature . '</p>'
+            . '<p style="margin:6px 0 0;font-size:11px;color:#9aa4ad">Powered by ' . $escape(\vendor_name()) . ' &copy; ' . date('Y') . '</p>'
+            . '</td></tr>'
+            . '</table></td></tr></table></body></html>';
+    }
+
+    /**
+     * The body of the letter, between the heading and the signature: its lines,
+     * tables, facts and closing. Public so a page can put it in an editor for
+     * someone to change before it goes.
+     */
+    public static function content(array $message): string
+    {
+        $colour = '#' . Report::brand()['rgb'];
+        $escape = static fn (mixed $v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+
         $body = '';
         foreach ((array) ($message['lines'] ?? []) as $line) {
             $body .= '<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#33404c">' . $escape($line) . '</p>';
@@ -376,41 +485,110 @@ final class Mailer
             }
         }
 
-        // A message that asks for a reply cannot be signed "do not reply".
-        $signature = $escape($message['signature'] ?? self::signature());
-        $redirectNote = $redirected
-            ? '<p style="margin:14px 0 0;padding:10px 12px;background:#fff8e6;border-left:3px solid #e0a800;font-size:12px;color:#6b5600">'
-              . 'Test mode: this message was addressed to <strong>' . $escape($realRecipient)
-              . '</strong> and redirected here.</p>'
-            : '';
+        return $body;
+    }
 
-        return '<!doctype html><html><head><meta charset="utf-8">'
-            . '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            . '<title>' . $escape($message['subject'] ?? 'Update') . '</title></head>'
-            . '<body style="margin:0;padding:0;background:#f1f4f7;font-family:Segoe UI,Helvetica,Arial,sans-serif">'
-            . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f1f4f7;padding:24px 12px">'
-            . '<tr><td align="center">'
-            . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:580px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 10px rgba(20,30,40,.07)">'
-            . '<tr><td style="background:' . $colour . ';padding:18px 26px">'
-            . '<span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:.4px">' . $escape($company) . '</span>'
-            . '<span style="display:block;color:rgba(255,255,255,.82);font-size:11px;letter-spacing:1.2px;text-transform:uppercase;margin-top:2px">Logistics Management System</span>'
-            . '</td></tr>'
-            . '<tr><td style="padding:26px">'
-            . '<h1 style="margin:0 0 16px;font-size:19px;line-height:1.35;color:#18222c;font-weight:700">' . $heading . '</h1>'
-            . $body
-            . $redirectNote
-            . '</td></tr>'
-            . '<tr><td style="padding:16px 26px;background:#f7f9fb;border-top:1px solid #e9edf1">'
-            . '<p style="margin:0;font-size:11px;line-height:1.6;color:#8a949e">' . $signature . '</p>'
-            . '<p style="margin:6px 0 0;font-size:11px;color:#9aa4ad">Powered by ' . $escape(\vendor_name()) . ' &copy; ' . date('Y') . '</p>'
-            . '</td></tr>'
-            . '</table></td></tr></table></body></html>';
+    /**
+     * HTML from an editor, reduced to what a letter needs: paragraphs, bold and
+     * italics, lists, links and tables, with their inline styles. Scripts,
+     * forms, frames and event handlers are dropped; any other tag is unwrapped
+     * and keeps its text.
+     */
+    public static function clean(string $html): string
+    {
+        if (trim($html) === '') {
+            return '';
+        }
+
+        $keep = ['p', 'br', 'div', 'span', 'strong', 'b', 'em', 'i', 'u', 's', 'ul', 'ol', 'li', 'a', 'h1', 'h2', 'h3', 'h4',
+                 'blockquote', 'hr', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td'];
+        $drop = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'select', 'textarea', 'link', 'meta', 'head', 'title', 'svg', 'math', 'img', 'video', 'audio'];
+        $attributes = ['style', 'align', 'valign', 'colspan', 'rowspan', 'href', 'cellpadding', 'cellspacing', 'role', 'width'];
+
+        $document = new \DOMDocument('1.0', 'UTF-8');
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<?xml encoding="utf-8"?><div id="lms-mail-root">' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $root = $document->getElementById('lms-mail-root');
+        if ($root === null) {
+            return htmlspecialchars(strip_tags($html), ENT_QUOTES, 'UTF-8');
+        }
+
+        $walk = static function (\DOMNode $node) use (&$walk, $keep, $drop, $attributes): void {
+            foreach (iterator_to_array($node->childNodes) as $child) {
+                if ($child instanceof \DOMComment || $child instanceof \DOMProcessingInstruction) {
+                    $node->removeChild($child);
+                    continue;
+                }
+                if (!$child instanceof \DOMElement) {
+                    continue;
+                }
+                $tag = strtolower($child->nodeName);
+                if (in_array($tag, $drop, true)) {
+                    $node->removeChild($child);
+                    continue;
+                }
+                $walk($child);
+                if (!in_array($tag, $keep, true)) {
+                    while ($child->firstChild !== null) {
+                        $node->insertBefore($child->firstChild, $child);
+                    }
+                    $node->removeChild($child);
+                    continue;
+                }
+                foreach (iterator_to_array($child->attributes) as $attribute) {
+                    $name = strtolower($attribute->nodeName);
+                    $value = (string) $attribute->nodeValue;
+                    $unsafe = !in_array($name, $attributes, true)
+                        || ($name === 'href' && preg_match('~^(https?:|mailto:|tel:)~i', trim($value)) !== 1)
+                        || ($name === 'style' && preg_match('~expression|javascript|url\s*\(|@import|behavior~i', $value) === 1);
+                    if ($unsafe) {
+                        $child->removeAttribute($attribute->nodeName);
+                    }
+                }
+            }
+        };
+        $walk($root);
+
+        $out = '';
+        foreach ($root->childNodes as $child) {
+            $out .= $document->saveHTML($child);
+        }
+
+        return trim($out);
+    }
+
+    /** An edited letter as plain text: one paragraph or table row per line. */
+    public static function textFromHtml(string $html): string
+    {
+        $text = preg_replace('~<\s*br\s*/?>~i', "\n", $html) ?? $html;
+        $text = preg_replace('~<\s*li[^>]*>~i', '- ', $text) ?? $text;
+        $text = preg_replace('~</\s*(t[hd])\s*>~i', '  |  ', $text) ?? $text;
+        $text = preg_replace('~</\s*(p|h[1-6]|table|ul|ol|blockquote)\s*>~i', "\n\n", $text) ?? $text;
+        $text = preg_replace('~</\s*(div|tr|li)\s*>~i', "\n", $text) ?? $text;
+        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('~[ \t]*\|\s*$~m', '', $text) ?? $text;
+        $text = preg_replace('~[ \t]+\n~', "\n", $text) ?? $text;
+        $text = preg_replace("~\n{3,}~", "\n\n", $text) ?? $text;
+
+        return trim($text);
     }
 
     /** The same message as plain text, for clients that will not show HTML. */
     private static function plain(array $message): string
     {
         $parts = [(string) ($message['heading'] ?? $message['subject'] ?? 'Update'), ''];
+
+        if (isset($message['body_html'])) {
+            $parts[] = self::textFromHtml(self::clean((string) $message['body_html']));
+            $parts[] = '';
+            $parts[] = $message['signature'] ?? self::signature();
+            $parts[] = 'Powered by ' . \vendor_name() . ' (c) ' . date('Y');
+
+            return implode("\n", $parts);
+        }
 
         foreach ((array) ($message['lines'] ?? []) as $line) {
             $parts[] = (string) $line;
@@ -456,6 +634,25 @@ final class Mailer
         $parts[] = 'Powered by ' . \vendor_name() . ' (c) ' . date('Y');
 
         return implode("\n", $parts);
+    }
+
+    public static function uploadsRoot(): string
+    {
+        return rtrim(str_replace('\\', '/', (string) \config('uploads.path', dirname(__DIR__, 2) . '/storage/uploads')), '/');
+    }
+
+    /** A file's path under the uploads folder, or null when it is not in there. */
+    private static function uploadsRelative(string $path): ?string
+    {
+        $root = realpath(self::uploadsRoot());
+        $real = realpath($path) ?: realpath(self::uploadsRoot() . '/' . ltrim($path, '/\\'));
+        if ($root === false || $real === false || !is_file($real)) {
+            return null;
+        }
+        $root = str_replace('\\', '/', $root);
+        $real = str_replace('\\', '/', $real);
+
+        return str_starts_with($real, $root . '/') ? substr($real, strlen($root) + 1) : null;
     }
 
     /** An absolute link, because a relative one is meaningless in an inbox. */

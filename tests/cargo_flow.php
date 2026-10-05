@@ -90,7 +90,7 @@ try {
     } catch (Throwable $exception) {
         $test->assert(false, 'marking a pre-dispatch check ready crashed: ' . $exception->getMessage());
     }
-    $test->assert(in_array('Every final pre-dispatch item must be confirmed before marking this shipment ready.', $errors, true), 'an incomplete pre-dispatch check is refused with a clear message');
+    $test->assert(in_array('Tick "Quantity verified" after checking it at the truck, before marking this shipment ready.', $errors, true), 'an incomplete pre-dispatch check is refused with a clear message');
 
     // ------------------------------------------------------------ dispatch
     $dispatch = Models\Workflow::apply('trips', $tripId, 'dispatch');

@@ -41,6 +41,8 @@ final class Reference
         'storage_releases' => 'gate_pass_no',
         'containers' => 'tracking_code',
         'journeys' => 'journey_code',
+        'price_offers' => 'offer_code',
+        'support_requests' => 'request_code',
     ];
 
     public static function next(string $prefix, string $table, string $column, int $width = 4): string

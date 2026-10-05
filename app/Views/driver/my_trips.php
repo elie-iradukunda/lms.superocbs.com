@@ -41,16 +41,25 @@ $tripCard = static function (array $trip, bool $live) use ($when, $badge, $docRo
             <?php if (!empty($trip['customer_name'])): ?><span><i class="fe fe-briefcase"></i> <?= e($trip['customer_name']) ?></span><?php endif; ?>
             <span><i class="fe fe-log-out"></i> Leave <?= e($when($trip['departure_at'] ?: $trip['planned_departure_at'])) ?></span>
             <span><i class="fe fe-flag"></i> Arrive by <?= e($when($trip['planned_arrival_at'])) ?></span>
+            <?php if (($trip['distance']['start_km'] ?? null) !== null): ?><span class="lms-mt-km"><i class="fe fe-activity"></i> Started at <?= e(number_format((int) $trip['distance']['start_km'])) ?> km · <strong><?= e(number_format((int) ($trip['distance']['driven'] ?? 0))) ?> km driven</strong></span><?php endif; ?>
           </div>
         </div>
         <?php if ($live): ?>
           <div class="lms-mt-actions">
+            <?php if ($trip['readiness'] !== null && $trip['readiness']['ready']): ?>
+              <button class="btn btn-success lms-mt-start" type="button" data-start-trip data-url="<?= url(['my-trips', $trip['id'], 'start']) ?>" data-trip="<?= e($trip['reference_code']) ?>" data-from="<?= e($trip['pickup_location']) ?>" data-km="<?= e((string) ($trip['truck_mileage'] ?? '')) ?>"><i class="fe fe-play fe-12 mr-1"></i>Start trip</button>
+            <?php endif; ?>
+            <a class="btn btn-primary" target="_blank" rel="noopener" href="<?= url(['trips', $trip['id'], 'report', 'pdf']) ?>"><i class="fe fe-file-text fe-12 mr-1"></i>Trip report</a>
+            <?php if (can_create('support_requests')): ?><a class="btn btn-outline-danger" href="<?= url(['support_requests', 'create'], ['trip_id' => $trip['id']]) ?>"><i class="fe fe-life-buoy fe-12 mr-1"></i>Ask for support</a><?php endif; ?>
             <?php if (can_create('fuel')): ?><a class="btn btn-outline-primary" href="<?= url(['fuel', 'create'], ['trip_id' => $trip['id']]) ?>"><i class="fe fe-droplet fe-12 mr-1"></i>Record fuel</a><?php endif; ?>
             <?php if (can_create('expenses')): ?><a class="btn btn-outline-primary" href="<?= url(['expenses', 'create'], ['trip_id' => $trip['id']]) ?>"><i class="fe fe-credit-card fe-12 mr-1"></i>Record expense</a><?php endif; ?>
           </div>
         <?php endif; ?>
       </div>
 
+      <?php if ($live && $trip['readiness'] !== null && !$trip['readiness']['ready']): ?>
+        <div class="alert alert-secondary mx-3 mb-0"><i class="fe fe-clock mr-2"></i><strong>Not ready to start yet.</strong> The office is finishing: <?= e(implode('; ', array_slice($trip['readiness']['failures'], 0, 2))) ?>. You will get the trip report and a message when it is ready.</div>
+      <?php endif; ?>
       <?php if ($missing > 0 && $live): ?>
         <div class="alert alert-warning mx-3 mb-0"><i class="fe fe-alert-triangle mr-2"></i><?= (int) $missing ?> shipping paper<?= $missing === 1 ? ' is' : 's are' ?> still missing on this trip. Call the office before you reach the border.</div>
       <?php endif; ?>
@@ -63,10 +72,28 @@ $tripCard = static function (array $trip, bool $live) use ($when, $badge, $docRo
               <?php foreach ($trip['stops'] as $stop): ?>
                 <li class="is-<?= e((string) $stop['status']) ?>">
                   <div><strong><?= e($stop['location_name']) ?></strong> <span class="text-muted small"><?= e(\Models\Schema::label((string) $stop['stop_type'])) ?></span></div>
+                  <?php if ($live && $trip['status'] === 'in_transit'): ?>
+                    <div class="lms-mt-stop-actions">
+                      <?php if (empty($stop['actual_arrival_at'])): ?>
+                        <button class="btn btn-sm btn-primary" type="button" data-stop-confirm="arrive" data-url="<?= url(['my-trips', $trip['id'], 'stops', $stop['id'], 'arrive']) ?>" data-place="<?= e($stop['location_name']) ?>" data-trip="<?= e($trip['reference_code']) ?>"><i class="fe fe-map-pin fe-12 mr-1"></i>I have arrived</button>
+                      <?php elseif (empty($stop['departed_at'])): ?>
+                        <span class="small text-success">Arrived <?= e(date('H:i', strtotime((string) $stop['actual_arrival_at']))) ?><?= $stop['arrival_mileage'] ? ' · ' . e(number_format((int) $stop['arrival_mileage'])) . ' km' : '' ?><?= $stop['arrival_condition'] ? ' · ' . e(\Models\TripProgress::CONDITIONS[$stop['arrival_condition']] ?? '') : '' ?></span>
+                        <?php if (!\Models\TripProgress::handedOver((int) $trip["id"], $stop)): ?>
+                          <span class="small text-muted"><i class="fe fe-package fe-12 mr-1"></i>Unload first. You can leave once the office records the goods as dropped or delivered.</span>
+                        <?php else: ?>
+                        <button class="btn btn-sm btn-outline-primary" type="button" data-stop-confirm="leave" data-url="<?= url(['my-trips', $trip['id'], 'stops', $stop['id'], 'leave']) ?>" data-place="<?= e($stop['location_name']) ?>" data-trip="<?= e($trip['reference_code']) ?>"><i class="fe fe-log-out fe-12 mr-1"></i>Leaving</button>
+                        <?php endif; ?>
+                      <?php else: ?>
+                        <span class="small text-muted">Arrived <?= e(date('D H:i', strtotime((string) $stop['actual_arrival_at']))) ?> · left <?= e(date('D H:i', strtotime((string) $stop['departed_at']))) ?></span>
+                      <?php endif; ?>
+                    </div>
+                  <?php endif; ?>
                   <div class="small text-muted">
-                    <?= $stop['contact_name'] ? e($stop['contact_name']) : '' ?>
-                    <?php if ($stop['contact_phone']): ?> · <a href="tel:<?= e(preg_replace('/\s+/', '', (string) $stop['contact_phone'])) ?>"><?= e($stop['contact_phone']) ?></a><?php endif; ?>
-                    <?= $stop['planned_arrival_at'] ? ' · by ' . e($when($stop['planned_arrival_at'])) : '' ?>
+                    <?= implode(' · ', array_filter([
+                        $stop['contact_name'] ? e($stop['contact_name']) : '',
+                        $stop['contact_phone'] ? '<a href="tel:' . e(preg_replace('/\s+/', '', (string) $stop['contact_phone'])) . '">' . e($stop['contact_phone']) . '</a>' : '',
+                        $stop['planned_arrival_at'] ? 'by ' . e($when($stop['planned_arrival_at'])) : '',
+                    ])) ?>
                     <?= $badge((string) $stop['status']) ?>
                   </div>
                 </li>
@@ -104,6 +131,23 @@ $tripCard = static function (array $trip, bool $live) use ($when, $badge, $docRo
             <?= $docRows($crossing['documents']) ?>
           </div>
         <?php endforeach; ?>
+
+        <?php if ($trip['support'] !== []): ?>
+          <div class="lms-mt-block">
+            <h4><i class="fe fe-life-buoy"></i> Support you asked for</h4>
+            <?php foreach ($trip['support'] as $help): ?>
+              <div class="lms-mt-doc">
+                <div class="lms-mt-doc-name"><strong><?= e($help['request_code']) ?> · <?= e($help['title']) ?></strong>
+                  <span><?= e(\Models\Schema::SUPPORT_TYPES[$help['support_type']] ?? '') ?><?= (float) $help['amount_requested'] > 0 ? ' · asked ' . e(\Models\Currency::format((float) $help['amount_requested'], (string) ($help['currency'] ?: \Models\Currency::base()))) : '' ?> · sent to <?= e($help['assigned_name'] ?? 'the office') ?></span>
+                  <?php if (trim((string) $help['response']) !== '' || (float) $help['amount_given'] > 0 || $help['rejection_reason']): ?>
+                    <span class="lms-mt-answer"><b><?= e($help['responded_name'] ?? 'Office') ?>:</b> <?= e(trim((string) ($help['rejection_reason'] ?: $help['response']))) ?><?= (float) $help['amount_given'] > 0 ? ' · ' . e(\Models\Currency::format((float) $help['amount_given'], (string) ($help['currency'] ?: \Models\Currency::base()))) . ($help['given_method'] ? ' by ' . e($help['given_method']) : '') . ($help['given_reference'] ? ' (' . e($help['given_reference']) . ')' : '') : '' ?></span>
+                  <?php endif; ?>
+                </div>
+                <div class="lms-mt-doc-actions"><?= $badge((string) $help['status']) ?></div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
 
         <?php if ($trip['deliveries'] !== []): ?>
           <div class="lms-mt-block">
@@ -181,6 +225,118 @@ $truckDocs = array_sum(array_map(static fn (array $t): int => count($t['document
     </div>
   </div>
 </div>
+<?php // One small window for both buttons, so a stop is never recorded by a slip of the finger. ?>
+<div class="modal fade" id="stopConfirmModal" tabindex="-1" role="dialog" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+  <form method="post" id="stopConfirmForm">
+    <?= csrf_field() ?>
+    <div class="modal-header">
+      <div>
+        <small class="text-muted" id="stopConfirmTrip"></small>
+        <h5 class="modal-title" id="stopConfirmTitle"></h5>
+      </div>
+      <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+    </div>
+    <div class="modal-body">
+      <p class="mb-3" id="stopConfirmText"></p>
+      <div data-arrive-only>
+        <div class="form-group">
+          <label for="stopMileage">Kilometres on the clock <span class="text-muted small">(if you can)</span></label>
+          <input class="form-control" type="number" inputmode="numeric" min="0" step="1" name="mileage" id="stopMileage" placeholder="186900">
+        </div>
+        <div class="form-group">
+          <label class="d-block">How is everything?</label>
+          <div class="btn-group btn-group-toggle d-flex lms-stop-condition" data-toggle="buttons">
+            <?php foreach (\Models\TripProgress::CONDITIONS as $value => $wording): ?>
+              <label class="btn btn-outline-<?= $value === 'fine' ? 'success' : ($value === 'problem' ? 'warning' : 'danger') ?> flex-fill<?= $value === 'fine' ? ' active' : '' ?>">
+                <input type="radio" name="condition" value="<?= e($value) ?>"<?= $value === 'fine' ? ' checked' : '' ?>> <?= e($wording) ?>
+              </label>
+            <?php endforeach; ?>
+          </div>
+        </div>
+      </div>
+      <div class="form-group mb-0">
+        <label for="stopNote">Note for the office <span class="text-muted small">(optional)</span></label>
+        <textarea class="form-control" name="note" id="stopNote" rows="2" maxlength="250"></textarea>
+      </div>
+      <p class="small text-muted mt-3 mb-0"><i class="fe fe-clock mr-1"></i>The date and time are recorded automatically, and the company is told straight away.</p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-light" data-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-primary" id="stopConfirmSubmit"></button>
+    </div>
+  </form>
+</div></div></div>
+<div class="modal fade" id="startTripModal" tabindex="-1" role="dialog" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+  <form method="post" id="startTripForm">
+    <?= csrf_field() ?>
+    <div class="modal-header">
+      <div>
+        <small class="text-muted" id="startTripCode"></small>
+        <h5 class="modal-title">Start the trip now?</h5>
+      </div>
+      <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+    </div>
+    <div class="modal-body">
+      <p class="mb-3" id="startTripText"></p>
+      <div class="form-group mb-0">
+        <label for="startTripKm">Kilometres on the clock now <span class="lms-required">*</span></label>
+        <input class="form-control form-control-lg" type="number" inputmode="numeric" min="0" step="1" name="mileage" id="startTripKm" required>
+        <small class="form-text text-muted" id="startTripLast"></small>
+      </div>
+      <p class="small text-muted mt-3 mb-0"><i class="fe fe-clock mr-1"></i>The date and time are recorded automatically. The distance at every stop is counted from this reading.</p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-light" data-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-success" id="startTripSubmit"><i class="fe fe-play fe-12 mr-1"></i>Yes, start the trip</button>
+    </div>
+  </form>
+</div></div></div>
+<script>
+  // "Start trip" asks for the kilometres on the clock before anything is recorded.
+  document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('startTripForm');
+    document.querySelectorAll('[data-start-trip]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var km = button.getAttribute('data-km');
+        form.setAttribute('action', button.getAttribute('data-url'));
+        document.getElementById('startTripCode').textContent = button.getAttribute('data-trip');
+        document.getElementById('startTripText').textContent = 'Press this only when you are driving out of ' + button.getAttribute('data-from') + '. The company and the customer are told you are on your way.';
+        document.getElementById('startTripKm').value = km;
+        document.getElementById('startTripLast').textContent = km ? 'The truck\'s last reading was ' + Number(km).toLocaleString() + ' km. Check the clock and correct it if needed.' : '';
+        document.getElementById('startTripSubmit').disabled = false;
+        if (window.jQuery) { jQuery('#startTripModal').modal('show'); }
+      });
+    });
+    form.addEventListener('submit', function () { document.getElementById('startTripSubmit').disabled = true; });
+  });
+</script>
+<script>
+  // "I have arrived" / "Leaving" open the small window; only its button records the stop.
+  document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('stopConfirmForm');
+    document.querySelectorAll('[data-stop-confirm]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var arriving = button.getAttribute('data-stop-confirm') === 'arrive';
+        var place = button.getAttribute('data-place');
+        form.reset();
+        form.setAttribute('action', button.getAttribute('data-url'));
+        document.getElementById('stopConfirmTrip').textContent = button.getAttribute('data-trip');
+        document.getElementById('stopConfirmTitle').textContent = (arriving ? 'Arrived at ' : 'Leaving ') + place + '?';
+        document.getElementById('stopConfirmText').textContent = arriving
+          ? 'You are telling the company you have reached ' + place + ' now.'
+          : 'You are telling the company you are leaving ' + place + ' now.';
+        document.getElementById('stopNote').setAttribute('placeholder', arriving ? 'Queue of 40 trucks at the border' : 'Customs cleared, going on to Kampala');
+        form.querySelectorAll('[data-arrive-only]').forEach(function (el) { el.style.display = arriving ? '' : 'none'; });
+        form.querySelectorAll('.lms-stop-condition label').forEach(function (label, i) { label.classList.toggle('active', i === 0); });
+        var submit = document.getElementById('stopConfirmSubmit');
+        submit.disabled = false;
+        submit.textContent = arriving ? 'Yes, I have arrived' : 'Yes, I am leaving';
+        if (window.jQuery) { jQuery('#stopConfirmModal').modal('show'); }
+      });
+    });
+    form.addEventListener('submit', function () { document.getElementById('stopConfirmSubmit').disabled = true; });
+  });
+</script>
 <script>
   // Remember the tab, so coming back from a document opens the same one.
   document.addEventListener('DOMContentLoaded', function () {

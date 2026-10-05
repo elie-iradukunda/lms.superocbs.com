@@ -85,6 +85,22 @@ final class AccountController
         exit;
     }
 
+    /** "My signature": drawn on the screen or uploaded, or removed. Only ever your own. */
+    public function saveSignature(): void
+    {
+        $userId = (int) \current_user_id();
+        if (($_POST['remove_signature'] ?? '') === '1') {
+            \Models\Signature::remove($userId);
+            Flash::success('Your signature was removed. Documents will show an empty line for you to sign by hand.');
+        } else {
+            $problem = \Models\Signature::save($userId, (string) ($_POST['signature_drawn'] ?? ''), $_FILES['signature_file'] ?? null);
+            $problem === null ? Flash::success('Your signature was saved. It goes on the documents you approve or dispatch.') : Flash::error($problem);
+        }
+
+        header('Location: ' . \url('account') . '#pane-signature');
+        exit;
+    }
+
     public function password(): void
     {
         \view('account/password', [

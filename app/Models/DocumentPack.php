@@ -59,6 +59,12 @@ final class DocumentPack
             if ($check->fetchColumn() !== 'ready') {
                 return sprintf('%s has not passed the final pre-dispatch check.', $shipment['shipment_code']);
             }
+            // Checked again now: a paper can have expired, or the truck been
+            // sent to the workshop, since the check was marked ready.
+            $analysis = DispatchReadiness::forShipment((int) $shipment['id']);
+            if ($analysis !== null && !$analysis['ready']) {
+                return sprintf('%s is not ready to leave: %s', $shipment['shipment_code'], implode('; ', array_slice($analysis['failures'], 0, 3)));
+            }
         }
 
         return null;

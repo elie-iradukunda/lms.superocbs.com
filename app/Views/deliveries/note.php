@@ -45,11 +45,16 @@ $delivered = ($note['status'] ?? '') === 'delivered';
   td { border-bottom: 1px solid var(--line); padding: 8px; vertical-align: top; }
   td.num, th.num { text-align: right; }
   .instructions { margin-top: 10px; font-size: 12px; }
+  .signame { float: right; font-size: 11px; font-weight: 600; margin-top: 14px; }
   .signatures { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 18px; }
   .sign { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 40mm; }
   .sign h3 { margin: 0 0 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--brand); }
   .line { border-bottom: 1px dotted #9aa4ad; height: 22px; margin-bottom: 2px; font-weight: 600; padding-top: 4px; }
   .label { color: var(--muted); font-size: 10.5px; margin-bottom: 4px; }
+  .sign { position: relative; }
+  .seal { position: absolute; right: 8px; bottom: 8px; max-height: 26mm; max-width: 40mm; mix-blend-mode: multiply; transform: rotate(-6deg); }
+  .sigline { height: 34px; position: relative; }
+  .sigline .sig { position: absolute; left: 0; bottom: 1px; max-height: 32px; max-width: 70%; mix-blend-mode: multiply; }
   .stamp { border: 1px dashed #9aa4ad; height: 22mm; display: flex; align-items: center; justify-content: center; color: #9aa4ad; font-size: 11px; }
   footer { margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10.5px; display: flex; justify-content: space-between; }
   .status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; background: #e8f5ec; color: #2f855a; }
@@ -142,19 +147,20 @@ $delivered = ($note['status'] ?? '') === 'delivered';
     <div class="sign">
       <h3>Dispatched by</h3>
       <div class="line"><?= e($company['name']) ?></div><div class="label">Company</div>
-      <div class="line"></div><div class="label">Name and signature</div>
+      <div class="line sigline"><?php if (!empty($signatures['dispatched'])): ?><img class="sig" src="<?= $signatures['dispatched'] ?>" alt="Signature"><?php endif; ?><?= !empty($note['dispatched_at']) && !empty($note['dispatched_by_name']) ? '<span class="signame">' . e((string) $note['dispatched_by_name']) . '</span>' : '' ?></div><div class="label">Name and signature</div>
+      <?php if (!empty($company['seal'])): ?><img class="seal" src="<?= $company['seal'] ?>" alt="Company seal"><?php endif; ?>
     </div>
     <div class="sign">
       <h3>Driver</h3>
       <div class="line"><?= e((string) ($note['driver_name'] ?? '')) ?></div><div class="label">Name</div>
-      <div class="line"></div><div class="label">Signature</div>
+      <div class="line sigline"><?php if (!empty($signatures['driver'])): ?><img class="sig" src="<?= $signatures['driver'] ?>" alt="Signature"><?php endif; ?></div><div class="label">Signature</div>
     </div>
     <div class="sign">
       <h3>Received in good order</h3>
       <div class="line"><?= e((string) ($note['collected_by'] ?: ($delivered ? $note['recipient_name'] : ''))) ?></div><div class="label">Name</div>
       <div class="line"><?= e((string) ($note['collected_id_no'] ?? '')) ?></div><div class="label">ID number</div>
       <div class="line"><?= $delivered && $note['delivered_at'] ? $dt($note['delivered_at']) : '' ?></div><div class="label">Date and time</div>
-      <div class="line"></div><div class="label">Signature</div>
+      <div class="line sigline"><?php if (!empty($signatures['received'])): ?><img class="sig" src="<?= $signatures['received'] ?>" alt="Signature"><?php endif; ?></div><div class="label">Signature</div>
       <div class="stamp">Company stamp</div>
     </div>
   </div>

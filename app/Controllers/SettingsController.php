@@ -6,6 +6,7 @@ namespace Controllers;
 
 use Core\Flash;
 use Models\AuditLog;
+use Models\CompanyImage;
 use Models\Settings;
 
 /**
@@ -54,7 +55,8 @@ final class SettingsController
 
         foreach ($submitted as $key => $value) {
             $key = (string) $key;
-            if (!isset($allowed[$key])) {
+            // An image (the seal) arrives as a file below, never as typed text.
+            if (!isset($allowed[$key]) || $allowed[$key] === 'image') {
                 continue;
             }
 
@@ -65,8 +67,31 @@ final class SettingsController
                 continue;
             }
 
+            // A colour is kept as six hex digits, without the #.
+            if ($allowed[$key] === 'color') {
+                $value = strtoupper(ltrim($value, '#'));
+                if (preg_match('/^[0-9A-F]{6}$/', $value) !== 1) {
+                    $problems[] = 'Pick a colour from the list or the colour picker.';
+                    continue;
+                }
+            }
+
             Settings::put($key, mb_substr($value, 0, 255));
             $changed++;
+        }
+
+        // The logo and the seal: a new file replaces the old one; "remove" takes it off every document.
+        foreach ($allowed as $key => $type) {
+            if ($type !== 'image') {
+                continue;
+            }
+            if (!empty($_POST['remove_image'][$key])) {
+                CompanyImage::remove($key);
+                $changed++;
+            } elseif (($_FILES[$key]['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                $problem = CompanyImage::upload($key, $_FILES[$key]);
+                $problem === null ? $changed++ : $problems[] = $problem;
+            }
         }
 
         if ($problems !== []) {

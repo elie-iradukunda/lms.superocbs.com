@@ -50,7 +50,7 @@ final class Containers
         }
 
         if ($action === 'return') {
-            $db->prepare('UPDATE containers SET unloaded_at = COALESCE(unloaded_at, NOW()), returned_at = COALESCE(returned_at, NOW()) WHERE id = ?')->execute([$id]);
+            $db->prepare('UPDATE containers SET unloaded_at = COALESCE(unloaded_at, returned_at, NOW()), returned_at = COALESCE(returned_at, NOW()) WHERE id = ?')->execute([$id]);
             $fresh = self::row($id);
             $position = self::position($fresh);
 

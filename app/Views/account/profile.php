@@ -16,6 +16,7 @@
     <section class="card shadow-sm lms-section lms-form-tabs">
       <ul class="nav nav-tabs lms-tabs" role="tablist">
         <li class="nav-item"><a class="nav-link active" id="tab-details" data-toggle="tab" href="#pane-details" role="tab" aria-controls="pane-details" aria-selected="true"><i class="fe fe-user fe-14 mr-2"></i>Your details</a></li>
+        <li class="nav-item"><a class="nav-link" id="tab-signature" data-toggle="tab" href="#pane-signature" role="tab" aria-controls="pane-signature" aria-selected="false"><i class="fe fe-edit-3 fe-14 mr-2"></i>My signature</a></li>
         <li class="nav-item"><a class="nav-link" id="tab-access" data-toggle="tab" href="#pane-access" role="tab" aria-controls="pane-access" aria-selected="false"><i class="fe fe-shield fe-14 mr-2"></i>Access</a></li>
         <li class="nav-item"><a class="nav-link" id="tab-abilities" data-toggle="tab" href="#pane-abilities" role="tab" aria-controls="pane-abilities" aria-selected="false"><i class="fe fe-list fe-14 mr-2"></i>What you may do</a></li>
       </ul>
@@ -91,6 +92,40 @@
           </div>
         </div>
 
+        <?php $signature = \Models\Signature::forUser((int) $user['id']); ?>
+        <div class="tab-pane fade" id="pane-signature" role="tabpanel" aria-labelledby="tab-signature">
+          <div class="card-body">
+            <div class="row">
+              <div class="col-lg-5 mb-3">
+                <label class="d-block">Your signature now</label>
+                <div class="lms-sign-current">
+                  <?php if ($signature !== null): ?>
+                    <img src="<?= $signature ?>" alt="Your signature">
+                  <?php else: ?>
+                    <span class="text-muted">No signature yet</span>
+                  <?php endif; ?>
+                </div>
+                <?php if ($signature !== null): ?>
+                  <button type="submit" form="lms-signature-form" name="remove_signature" value="1" class="btn btn-sm btn-link text-danger px-0 mt-1">Remove my signature</button>
+                <?php endif; ?>
+              </div>
+              <div class="col-lg-7">
+                <label class="d-block">Draw it here</label>
+                <canvas id="lms-sign-pad" class="lms-sign-pad" width="600" height="200"></canvas>
+                <div class="d-flex flex-wrap align-items-center mt-2" style="gap: 8px">
+                  <button type="button" class="btn btn-sm btn-light" id="lms-sign-clear"><i class="fe fe-rotate-ccw fe-12 mr-1"></i>Clear</button>
+                  <span class="text-muted small">or</span>
+                  <label class="btn btn-sm btn-outline-primary mb-0" for="signature_file"><i class="fe fe-upload fe-12 mr-1"></i>Upload a picture</label>
+                  <input type="file" id="signature_file" name="signature_file" form="lms-signature-form" accept="image/png,image/jpeg" class="d-none">
+                  <span class="small text-muted" id="lms-sign-chosen"></span>
+                </div>
+                <input type="hidden" name="signature_drawn" id="signature_drawn" form="lms-signature-form">
+                <button type="submit" form="lms-signature-form" class="btn btn-primary mt-3" id="lms-sign-save"><i class="fe fe-save fe-12 mr-1"></i>Save my signature</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="tab-pane fade" id="pane-access" role="tabpanel" aria-labelledby="tab-access">
           <div class="card-body">
             <p class="lms-tab-hint">Managed by an administrator.</p>
@@ -123,5 +158,42 @@
 
     <p class="small text-muted mt-n2"><span class="lms-required">*</span> marks a required field</p>
   </form>
+  <form id="lms-signature-form" method="post" action="<?= url(['account', 'signature']) ?>" enctype="multipart/form-data"><?= csrf_field() ?></form>
 </div>
+<script>
+  // The signature pad: a finger on a phone, a mouse or a pen on a computer.
+  document.addEventListener('DOMContentLoaded', function () {
+    // Back on the tab you were using after saving.
+    if (location.hash === '#pane-signature' && window.jQuery) { jQuery('#tab-signature').tab('show'); }
+    var pad = document.getElementById('lms-sign-pad');
+    if (!pad) { return; }
+    var ctx = pad.getContext('2d');
+    var drawing = false, drawn = false, last = null;
+    ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#14234b';
+    var point = function (event) {
+      var rect = pad.getBoundingClientRect();
+      var source = event.touches ? event.touches[0] : event;
+      return { x: (source.clientX - rect.left) * pad.width / rect.width, y: (source.clientY - rect.top) * pad.height / rect.height };
+    };
+    var start = function (event) { event.preventDefault(); drawing = true; last = point(event); };
+    var move = function (event) {
+      if (!drawing) { return; }
+      event.preventDefault();
+      var p = point(event);
+      ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+      last = p; drawn = true;
+    };
+    var stop = function () { drawing = false; };
+    pad.addEventListener('mousedown', start); pad.addEventListener('mousemove', move); window.addEventListener('mouseup', stop);
+    pad.addEventListener('touchstart', start, { passive: false }); pad.addEventListener('touchmove', move, { passive: false }); pad.addEventListener('touchend', stop);
+    document.getElementById('lms-sign-clear').addEventListener('click', function () { ctx.clearRect(0, 0, pad.width, pad.height); drawn = false; });
+    document.getElementById('signature_file').addEventListener('change', function () {
+      document.getElementById('lms-sign-chosen').textContent = this.files[0] ? this.files[0].name : '';
+    });
+    document.getElementById('lms-signature-form').addEventListener('submit', function (event) {
+      var removing = event.submitter && event.submitter.name === 'remove_signature';
+      if (!removing && drawn) { document.getElementById('signature_drawn').value = pad.toDataURL('image/png'); }
+    });
+  });
+</script>
 <?php require __DIR__ . '/../layouts/footer.php'; ?>

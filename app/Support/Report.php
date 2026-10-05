@@ -158,11 +158,12 @@ final class Report
 
         // PDF and Excel both need real raster bytes, so the SVG the interface
         // uses is no good here; a PNG or JPG beside it is.
+        // The logo uploaded on Company settings comes first.
         $root = dirname(__DIR__, 2) . '/public/assets/img/';
-        $configured = trim(Settings::get('company_logo', ''));
         $candidates = [];
-        if ($configured !== '' && !str_contains($configured, '..')) {
-            $candidates[] = $root . ltrim($configured, '/\\');
+        $uploaded = \Models\CompanyImage::path(\Models\CompanyImage::LOGO);
+        if ($uploaded !== null) {
+            $candidates[] = $uploaded;
         }
         $candidates[] = $root . 'report-logo.png';
         $candidates[] = $root . 'report-logo.jpg';

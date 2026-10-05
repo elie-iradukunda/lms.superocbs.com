@@ -30,8 +30,12 @@ $router->add(['GET', 'POST'], '/reset-password/{token}', [HomeController::class,
 // ------------------------------------------------------------------ account
 $router->get('/dashboard', [DashboardController::class, 'index']);
 $router->get('/my-trips', [DriverController::class, 'myTrips'], ['permission' => 'dashboard']);
+$router->post('/my-trips/{id}/start', [DriverController::class, 'start'], ['permission' => 'dashboard']);
+$router->post('/my-trips/{id}/stops/{stop}/arrive', [DriverController::class, 'arrive'], ['permission' => 'dashboard']);
+$router->post('/my-trips/{id}/stops/{stop}/leave', [DriverController::class, 'leave'], ['permission' => 'dashboard']);
 $router->get('/account', [AccountController::class, 'profile'], ['permission' => 'dashboard']);
 $router->post('/account', [AccountController::class, 'updateProfile'], ['permission' => 'dashboard']);
+$router->post('/account/signature', [AccountController::class, 'saveSignature'], ['permission' => 'dashboard']);
 $router->get('/account/password', [AccountController::class, 'password'], ['permission' => 'dashboard']);
 $router->post('/account/password', [AccountController::class, 'updatePassword'], ['permission' => 'dashboard']);
 
@@ -93,6 +97,12 @@ $router->get('/audit/export', [AuditController::class, 'export'], ['permission' 
 // read as anything else.
 $router->get('/deliveries/{id}/note', [OperationsController::class, 'deliveryNote'], ['permission' => 'deliveries']);
 $router->post('/trips/{id}/invoice', [OperationsController::class, 'invoiceTrip'], ['permission' => 'invoices', 'ability' => 'create']);
+$router->get('/pre_dispatch_checks/readiness', [OperationsController::class, 'readiness'], ['permission' => 'pre_dispatch_checks']);
+$router->get('/trips/{id}/report', [OperationsController::class, 'tripReport'], ['permission' => 'trips']);
+$router->get('/trips/{id}/report/{format}', [OperationsController::class, 'tripReport'], ['permission' => 'trips']);
+$router->get('/crossings/{id}/agent-email', [OperationsController::class, 'composeAgent'], ['permission' => 'crossings', 'ability' => 'edit']);
+$router->post('/crossings/{id}/agent-email', [OperationsController::class, 'sendAgent'], ['permission' => 'crossings', 'ability' => 'edit']);
+$router->get('/invoices/{id}/print', [OperationsController::class, 'invoicePrint'], ['permission' => 'invoices']);
 $router->post('/invoices/{id}/disbursements', [OperationsController::class, 'invoiceDisbursements'], ['permission' => 'invoices', 'ability' => 'edit']);
 $router->get('/storage_lots/{id}/grn', [OperationsController::class, 'storageGrn'], ['permission' => 'storage_lots']);
 $router->post('/storage_lots/{id}/bill', [OperationsController::class, 'billStorage'], ['permission' => 'invoices', 'ability' => 'create']);
@@ -102,6 +112,11 @@ $router->post('/journeys/{id}/invoice', [OperationsController::class, 'invoiceJo
 $router->post('/containers/{id}/recharge', [OperationsController::class, 'rechargeContainer'], ['permission' => 'disbursements', 'ability' => 'create']);
 $router->get('/bank_statements/{id}/reconcile', [BankController::class, 'reconcile'], ['permission' => 'bank_statements']);
 $router->post('/bank_statements/{id}/reconcile/{op}', [BankController::class, 'act'], ['permission' => 'bank_statements', 'ability' => 'edit']);
+$router->get('/price_offers/{id}/email', [OperationsController::class, 'composeOffer'], ['permission' => 'price_offers', 'ability' => 'approve']);
+$router->post('/price_offers/{id}/email', [OperationsController::class, 'sendOffer'], ['permission' => 'price_offers', 'ability' => 'approve']);
+$router->get('/price_offers/{id}/lpo', [OperationsController::class, 'lpoForm'], ['permission' => 'price_offers']);
+$router->get('/price_offers/{id}/lpo-email', [OperationsController::class, 'composeLpo'], ['permission' => 'price_offers', 'ability' => 'approve']);
+$router->post('/price_offers/{id}/lpo-email', [OperationsController::class, 'sendLpo'], ['permission' => 'price_offers', 'ability' => 'approve']);
 $router->post('/report_emails/{id}/send', [OperationsController::class, 'sendReport'], ['permission' => 'report_emails', 'ability' => 'edit']);
 
 // ------------------------------------------------------- data imports
@@ -115,9 +130,9 @@ $router->post('/accounts/import', [ImportController::class, 'accountsImport'], [
 $modules = [
     'vehicles', 'drivers', 'driver_documents', 'vehicle_documents', 'maintenance',
     'requests', 'journeys', 'trips', 'shipments', 'deliveries', 'crossings', 'border_posts',
-    'shipment_documents', 'pre_dispatch_checks',
+    'shipment_documents', 'pre_dispatch_checks', 'support_requests',
     'clearance_documents', 'clearance_inspections', 'clearance_payments', 'clearance_releases',
-    'customers', 'rates', 'invoices', 'payments',
+    'customers', 'rates', 'price_offers', 'invoices', 'payments',
     'fuel', 'expenses', 'supplier_bills', 'supplier_payments', 'disbursements', 'bank_statements',
     'warehouses', 'warehouse', 'movements', 'procurement', 'suppliers', 'storage_lots', 'storage_releases', 'containers',
     'users', 'accounts', 'payment_methods', 'cheques', 'cheque_books', 'budgets', 'currencies', 'lookups',
