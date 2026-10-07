@@ -107,7 +107,7 @@ ON DUPLICATE KEY UPDATE can_view = 1;
 -- --------------------------------------------------- how the exports are branded
 INSERT INTO company_settings (setting_key, setting_value, setting_label, setting_group, input_type) VALUES
 ('report_brand_color', 'AD7D00', 'Report colour (hex, no #)', 'Accounting', 'text'),
-('company_logo', '', 'Logo for exports (PNG or JPG under assets/img)', 'Accounting', 'text')
+('company_logo', '', 'Company logo', 'Company', 'image')
 ON DUPLICATE KEY UPDATE setting_label = VALUES(setting_label), setting_group = VALUES(setting_group), input_type = VALUES(input_type);
 
 COMMIT;

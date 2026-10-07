@@ -74,7 +74,7 @@ $searchIndex[] = ['label' => 'My profile', 'url' => url('account'), 'group' => '
         <a class="nav-link logistics-top-control lms-bell dropdown-toggle" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-label="Updates" title="Updates">
           <i class="fe fe-bell fe-16"></i><?php if ($unreadNotifications > 0): ?><em class="lms-bell-badge"><?= $unreadNotifications > 9 ? '9+' : (int) $unreadNotifications ?></em><?php endif; ?>
         </a>
-        <div class="dropdown-menu dropdown-menu-right lms-notify-menu">
+        <div class="dropdown-menu dropdown-menu-right lms-notify-menu" data-read-url="<?= e(url(['notifications', 'read'])) ?>" data-token="<?= e(csrf_token()) ?>">
           <div class="lms-notify-head">
             <strong>Updates</strong>
             <?php if ($unreadNotifications > 0): ?>
@@ -94,9 +94,29 @@ $searchIndex[] = ['label' => 'My profile', 'url' => url('account'), 'group' => '
               $route = (string) ($notification['link_route'] ?? '');
               $canOpen = $route !== '' && can_view($route);
               $severity = in_array($notification['severity'], ['danger', 'warning', 'success'], true) ? $notification['severity'] : 'primary';
+              // Straight to the record when the update names one: by id, or by searching its code.
+              $entityRef = trim((string) ($notification['entity_id'] ?? ''));
+              $openUrl = '';
+              if ($canOpen) {
+                  $openUrl = match (true) {
+                      $entityRef === '' || $route === 'my-trips' => url($route),
+                      ctype_digit($entityRef) => url([$route, $entityRef]),
+                      default => url($route, ['q' => $entityRef]),
+                  };
+              }
+              $createdAt = (string) ($notification['created_at'] ?? '');
               ?>
               <div class="lms-notify-row">
-                <a class="lms-notify-item<?= empty($notification['is_read']) ? ' is-unread' : '' ?>" href="<?= $canOpen ? e(url($route)) : '#' ?>">
+                <a class="lms-notify-item<?= empty($notification['is_read']) ? ' is-unread' : '' ?>" href="<?= $openUrl !== '' ? e($openUrl) : '#' ?>"
+                   data-key="<?= e($notification['notification_key']) ?>"
+                   data-title="<?= e($notification['title']) ?>"
+                   data-message="<?= e($notification['message']) ?>"
+                   data-severity="<?= e($severity) ?>"
+                   data-when="<?= $createdAt !== '' ? e(date('l j F Y, H:i', (int) strtotime($createdAt))) : '' ?>"
+                   data-ago="<?= e(time_ago($notification['created_at'] ?? null)) ?>"
+                   data-area="<?= e($route !== '' ? \Models\Schema::label(str_replace('-', '_', $route)) : '') ?>"
+                   data-ref="<?= e($entityRef !== '' && !ctype_digit($entityRef) ? $entityRef : '') ?>"
+                   data-open="<?= e($openUrl) ?>">
                   <i class="lms-notify-dot lms-notify-dot-<?= $severity ?>"></i>
                   <span class="lms-notify-body">
                     <strong><?= e($notification['title']) ?></strong>

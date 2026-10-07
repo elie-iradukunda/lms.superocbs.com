@@ -5,6 +5,7 @@
 use Controllers\AccountController;
 use Controllers\AuditController;
 use Controllers\BankController;
+use Controllers\BrandController;
 use Controllers\BooksController;
 use Controllers\DashboardController;
 use Controllers\DriverController;
@@ -26,6 +27,7 @@ $router->add(['GET', 'POST'], '/login', [HomeController::class, 'login'], ['publ
 $router->get('/logout', [HomeController::class, 'logout'], ['public' => true]);
 $router->add(['GET', 'POST'], '/forgot-password', [HomeController::class, 'forgotPassword'], ['public' => true, 'csrf' => false]);
 $router->add(['GET', 'POST'], '/reset-password/{token}', [HomeController::class, 'resetPassword'], ['public' => true, 'csrf' => false]);
+$router->get('/brand/logo', [BrandController::class, 'logo'], ['public' => true]);
 
 // ------------------------------------------------------------------ account
 $router->get('/dashboard', [DashboardController::class, 'index']);

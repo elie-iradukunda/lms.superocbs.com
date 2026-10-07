@@ -41,6 +41,21 @@ final class PdfWriter
 
     public static function send(array $doc): never
     {
+        $out = self::build($doc);
+        if (!headers_sent()) {
+            header('Content-Type: application/pdf');
+            header('Content-Disposition: attachment; filename="' . Report::filename($doc, 'pdf') . '"');
+            header('Content-Length: ' . strlen($out));
+            header('Cache-Control: max-age=0');
+        }
+
+        echo $out;
+        exit;
+    }
+
+    /** The PDF as bytes: for a download, or to attach to an email. */
+    public static function build(array $doc): string
+    {
         $columns = $doc['columns'];
 
         // Landscape once there are more than five columns: the Journal has
@@ -182,7 +197,10 @@ final class PdfWriter
                     $align = $column['align'] ?? ($i === 0 ? 'left' : 'right');
                     $numeric = is_int($value) || is_float($value);
                     if ($numeric) {
-                        $printed = Report::money($value, !empty($column['currency']));
+                        // A count (trips, litres, items) is not money: no decimals.
+                        $printed = !empty($column['count'])
+                            ? number_format((float) $value, 0)
+                            : Report::money($value, !empty($column['currency']));
                         $align = 'right';
                     } else {
                         $printed = (string) $value;
@@ -196,7 +214,7 @@ final class PdfWriter
             $streams[] = $s;
         }
 
-        self::emit($streams, $pageWidth, $pageHeight, Report::filename($doc, 'pdf'), $logo);
+        return self::assemble($streams, $pageWidth, $pageHeight, $logo);
     }
 
     // ------------------------------------------------------------ measuring
@@ -403,8 +421,8 @@ final class PdfWriter
         return $bytes === '' ? null : ['data' => $bytes, 'w' => $w, 'h' => $h];
     }
 
-    /** Assemble the objects, write the cross-reference table, send the file. */
-    private static function emit(array $streams, float $pageWidth, float $pageHeight, string $filename, ?array $logo): never
+    /** Assemble the objects and write the cross-reference table. */
+    private static function assemble(array $streams, float $pageWidth, float $pageHeight, ?array $logo): string
     {
         $count = count($streams);
         $objects = [];
@@ -470,14 +488,6 @@ final class PdfWriter
         }
         $out .= "trailer\n<< /Size " . ($maxId + 1) . " /Root 1 0 R >>\nstartxref\n{$xrefPosition}\n%%EOF";
 
-        if (!headers_sent()) {
-            header('Content-Type: application/pdf');
-            header('Content-Disposition: attachment; filename="' . $filename . '"');
-            header('Content-Length: ' . strlen($out));
-            header('Cache-Control: max-age=0');
-        }
-
-        echo $out;
-        exit;
+        return $out;
     }
 }

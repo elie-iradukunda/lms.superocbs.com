@@ -17,6 +17,13 @@ final class NotificationController
             Notifier::markRead((int) \current_user_id(), \current_role(), $key);
         }
 
+        // Opening an update in its window reads it without leaving the page.
+        if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => true, 'unread' => \unread_notification_count()]);
+            exit;
+        }
+
         $this->back((string) ($_POST['redirect'] ?? ''));
     }
 

@@ -13,7 +13,7 @@ class Notification extends BaseModel
         }
 
         $statement = $this->db->prepare(
-            'SELECT notification_key, title, message, link_route, severity, is_read, created_at
+            'SELECT notification_key, title, message, link_route, entity_type, entity_id, severity, is_read, created_at
              FROM notifications
              WHERE user_id = ?
                 OR (user_id IS NULL AND (role_key = ? OR role_key IS NULL))

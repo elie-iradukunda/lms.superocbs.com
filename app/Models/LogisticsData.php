@@ -691,6 +691,11 @@ final class LogisticsData
             }
         }
 
+        // A new order cannot ask the supplier to deliver in the past.
+        if ($key === 'procurement' && $id === null && $value('expected_date') !== '' && $value('expected_date') < date('Y-m-d')) {
+            $errors[] = 'The expected delivery date cannot be in the past.';
+        }
+
         if ($key === 'shipments') {
             $min = $value('temperature_min_c');
             $max = $value('temperature_max_c');

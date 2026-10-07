@@ -101,7 +101,7 @@ final class ReportData
      *
      * @return array{key: string, label: string, description: string, columns: array<string, array{label: string, type: string}>, rows: list<array<string, mixed>>, totals: array<string, mixed>, from: string, to: string}
      */
-    public static function run(string $key, ?string $from = null, ?string $to = null): array
+    public static function run(string $key, ?string $from = null, ?string $to = null, ?string $currency = null): array
     {
         if (!self::exists($key)) {
             throw new \InvalidArgumentException("Unknown report: {$key}");
@@ -127,6 +127,38 @@ final class ReportData
         };
 
         self::touchCatalogue($key);
+
+        // Money is never added across currencies: a report with money carries a
+        // currency on every row, can be narrowed to one currency, and is totalled
+        // per currency.
+        $report['currencies'] = [];
+        $report['currency'] = '';
+        $report['money_totals'] = [];
+        if (isset($report['columns']['currency'])) {
+            $base = Currency::base();
+            $present = array_values(array_unique(array_filter(array_map(static fn (array $row): string => (string) ($row['currency'] ?? ''), $report['rows']))));
+            usort($present, static fn (string $a, string $b): int => [$a !== $base, $a] <=> [$b !== $base, $b]);
+            $report['currencies'] = $present;
+
+            $wanted = strtoupper(trim((string) $currency));
+            if ($wanted !== '' && in_array($wanted, $present, true)) {
+                $report['currency'] = $wanted;
+                $report['rows'] = array_values(array_filter($report['rows'], static fn (array $row): bool => (string) ($row['currency'] ?? '') === $wanted));
+            }
+
+            foreach ($report['rows'] as $row) {
+                $code = (string) ($row['currency'] ?? $base);
+                foreach ($report['money_sum'] ?? [] as $column) {
+                    $report['money_totals'][$code][$column] = ($report['money_totals'][$code][$column] ?? 0.0) + (float) ($row[$column] ?? 0);
+                }
+            }
+            uksort($report['money_totals'], static fn (string $a, string $b): int => [$a !== $base, $a] <=> [$b !== $base, $b]);
+
+            $report['totals'] = [];
+            foreach ($report['count_sum'] ?? [] as $column) {
+                $report['totals'][$column] = array_sum(array_map('floatval', array_column($report['rows'], $column)));
+            }
+        }
 
         return $report + [
             'key' => $key,
@@ -192,20 +224,20 @@ final class ReportData
             "SELECT v.plate_number,
                     v.vehicle_type,
                     v.fuel_type,
+                    f.currency,
                     COUNT(f.id) AS fill_ups,
                     COALESCE(SUM(f.litres), 0) AS litres,
                     COALESCE(SUM(f.litres * f.unit_price), 0) AS total_cost,
                     COALESCE(AVG(f.unit_price), 0) AS average_price,
                     MAX(f.purchased_at) AS last_fill
              FROM vehicles v
-             LEFT JOIN fuel_records f
+             INNER JOIN fuel_records f
                     ON f.vehicle_id = v.id
                    AND f.deleted_at IS NULL
                    AND DATE(f.purchased_at) BETWEEN ? AND ?
              WHERE v.deleted_at IS NULL
-             GROUP BY v.id
-             HAVING fill_ups > 0
-             ORDER BY total_cost DESC",
+             GROUP BY v.id, f.currency
+             ORDER BY v.plate_number, f.currency",
             [$from, $to]
         );
 
@@ -214,6 +246,7 @@ final class ReportData
                 'plate_number' => ['label' => 'Vehicle', 'type' => 'code'],
                 'vehicle_type' => ['label' => 'Type', 'type' => 'text'],
                 'fuel_type' => ['label' => 'Fuel', 'type' => 'label'],
+                'currency' => ['label' => 'Cur.', 'type' => 'text'],
                 'fill_ups' => ['label' => 'Fill-ups', 'type' => 'number'],
                 'litres' => ['label' => 'Litres', 'type' => 'decimal'],
                 'average_price' => ['label' => 'Average price / L', 'type' => 'money'],
@@ -221,10 +254,8 @@ final class ReportData
                 'last_fill' => ['label' => 'Last fill-up', 'type' => 'datetime'],
             ],
             'rows' => $rows,
-            'totals' => [
-                'litres' => array_sum(array_map('floatval', array_column($rows, 'litres'))),
-                'total_cost' => array_sum(array_map('floatval', array_column($rows, 'total_cost'))),
-            ],
+            'money_sum' => ['total_cost'],
+            'count_sum' => ['fill_ups', 'litres'],
         ];
     }
 
@@ -304,13 +335,18 @@ final class ReportData
             $estimated = (float) $row['estimated'];
             $row['variance'] = (float) $row['actual'] - $estimated;
             $row['variance_pct'] = $estimated > 0 ? round(($row['variance'] / $estimated) * 100, 1) : null;
+            // Work orders are costed in the books' currency.
+            $row['currency'] = Currency::base();
         }
         unset($row);
 
         return [
+            'money_sum' => ['estimated', 'actual', 'variance'],
+            'count_sum' => ['work_orders', 'completed'],
             'columns' => [
                 'plate_number' => ['label' => 'Vehicle', 'type' => 'code'],
                 'vehicle_type' => ['label' => 'Type', 'type' => 'text'],
+                'currency' => ['label' => 'Cur.', 'type' => 'text'],
                 'work_orders' => ['label' => 'Work orders', 'type' => 'number'],
                 'completed' => ['label' => 'Completed', 'type' => 'number'],
                 'estimated' => ['label' => 'Estimated', 'type' => 'money'],
@@ -434,66 +470,79 @@ final class ReportData
 
     private static function tripProfitability(string $from, string $to): array
     {
-        // Once supplier bills and disbursements exist: duty recharged at cost is
-        // not revenue, and a subcontractor's or agent's bill on the trip is cost.
-        $payables = self::tableExists('supplier_bills');
-        $revenue = $payables
-            ? "SELECT i.trip_id, SUM(i.subtotal - COALESCE((SELECT SUM(l.line_total) FROM invoice_lines l WHERE l.invoice_id = i.id AND l.line_kind = 'disbursement'), 0)) AS revenue
-                 FROM invoices i
-                WHERE i.deleted_at IS NULL AND i.status <> 'cancelled' AND i.trip_id IS NOT NULL
-                GROUP BY i.trip_id"
-            : "SELECT trip_id, SUM(subtotal) AS revenue
-                 FROM invoices
-                WHERE deleted_at IS NULL AND status <> 'cancelled' AND trip_id IS NOT NULL
-                GROUP BY trip_id";
-        $bills = $payables
-            ? "SELECT trip_id, SUM(subtotal) AS cost FROM supplier_bills
-                WHERE deleted_at IS NULL AND status <> 'cancelled' AND trip_id IS NOT NULL
-                GROUP BY trip_id"
-            : 'SELECT NULL AS trip_id, 0 AS cost';
-
-        $rows = self::rows(
-            "SELECT t.reference_code,
+        $trips = self::rows(
+            "SELECT t.id,
+                    t.reference_code,
                     COALESCE(c.customer_name, 'Internal') AS customer,
-                    t.pickup_location,
                     t.destination,
-                    t.status,
-                    COALESCE(inv.revenue, 0) AS revenue,
-                    COALESCE(exp.cost, 0) + COALESCE(bil.cost, 0) AS expense_cost,
-                    COALESCE(fue.cost, 0) AS fuel_cost
+                    t.status
              FROM trips t
              LEFT JOIN customers c ON c.id = t.customer_id
-             LEFT JOIN (
-                 -- Net of VAT: the tax is collected for the revenue authority,
-                 -- so it was never the carrier's revenue to earn a margin on.
-                 {$revenue}
-             ) inv ON inv.trip_id = t.id
-             LEFT JOIN ({$bills}) bil ON bil.trip_id = t.id
-             LEFT JOIN (
-                 SELECT trip_id, SUM(amount) AS cost
-                 FROM expenses
-                 WHERE deleted_at IS NULL AND status <> 'rejected' AND trip_id IS NOT NULL
-                 GROUP BY trip_id
-             ) exp ON exp.trip_id = t.id
-             LEFT JOIN (
-                 SELECT trip_id, SUM(litres * unit_price) AS cost
-                 FROM fuel_records
-                 WHERE deleted_at IS NULL AND trip_id IS NOT NULL
-                 GROUP BY trip_id
-             ) fue ON fue.trip_id = t.id
              WHERE t.deleted_at IS NULL
                AND DATE(COALESCE(t.departure_at, t.created_at)) BETWEEN ? AND ?
              ORDER BY t.id DESC",
             [$from, $to]
         );
 
-        foreach ($rows as &$row) {
-            $revenue = (float) $row['revenue'];
-            $row['total_cost'] = (float) $row['expense_cost'] + (float) $row['fuel_cost'];
-            $row['margin'] = $revenue - $row['total_cost'];
-            $row['margin_pct'] = $revenue > 0 ? round(($row['margin'] / $revenue) * 100, 1) : null;
+        // Each source is summed per trip and per currency. Shillings, francs and
+        // dollars stay apart, so a trip that earned USD and spent UGX shows both.
+        $payables = self::tableExists('supplier_bills');
+        $sources = [
+            // Net of VAT and of costs recharged at cost: neither is the carrier's revenue.
+            'revenue' => $payables
+                ? "SELECT i.trip_id, i.currency, SUM(i.subtotal - COALESCE((SELECT SUM(l.line_total) FROM invoice_lines l WHERE l.invoice_id = i.id AND l.line_kind = 'disbursement'), 0)) AS amount
+                     FROM invoices i
+                    WHERE i.deleted_at IS NULL AND i.status <> 'cancelled' AND i.trip_id IS NOT NULL
+                    GROUP BY i.trip_id, i.currency"
+                : "SELECT trip_id, currency, SUM(subtotal) AS amount FROM invoices
+                    WHERE deleted_at IS NULL AND status <> 'cancelled' AND trip_id IS NOT NULL
+                    GROUP BY trip_id, currency",
+            'fuel_cost' => "SELECT trip_id, currency, SUM(litres * unit_price) AS amount FROM fuel_records
+                    WHERE deleted_at IS NULL AND trip_id IS NOT NULL
+                    GROUP BY trip_id, currency",
+            'expense_cost' => "SELECT trip_id, currency, SUM(amount) AS amount FROM expenses
+                    WHERE deleted_at IS NULL AND status <> 'rejected' AND trip_id IS NOT NULL
+                    GROUP BY trip_id, currency",
+        ];
+        if ($payables) {
+            $sources['bill_cost'] = "SELECT trip_id, currency, SUM(subtotal) AS amount FROM supplier_bills
+                    WHERE deleted_at IS NULL AND status <> 'cancelled' AND trip_id IS NOT NULL
+                    GROUP BY trip_id, currency";
         }
-        unset($row);
+
+        $money = [];
+        foreach ($sources as $field => $sql) {
+            foreach (self::rows($sql, []) as $line) {
+                $code = (string) ($line['currency'] ?: Currency::base());
+                $money[(int) $line['trip_id']][$code][$field] = (float) $line['amount'];
+            }
+        }
+
+        $base = Currency::base();
+        $rows = [];
+        foreach ($trips as $trip) {
+            $byCurrency = $money[(int) $trip['id']] ?? [$base => []];
+            uksort($byCurrency, static fn (string $a, string $b): int => [$a !== $base, $a] <=> [$b !== $base, $b]);
+            foreach ($byCurrency as $code => $amounts) {
+                $revenue = $amounts['revenue'] ?? 0.0;
+                $fuel = $amounts['fuel_cost'] ?? 0.0;
+                $claims = ($amounts['expense_cost'] ?? 0.0) + ($amounts['bill_cost'] ?? 0.0);
+                $cost = $fuel + $claims;
+                $rows[] = [
+                    'reference_code' => $trip['reference_code'],
+                    'customer' => $trip['customer'],
+                    'destination' => $trip['destination'],
+                    'status' => $trip['status'],
+                    'currency' => $code,
+                    'revenue' => $revenue,
+                    'fuel_cost' => $fuel,
+                    'expense_cost' => $claims,
+                    'total_cost' => $cost,
+                    'margin' => $revenue - $cost,
+                    'margin_pct' => $revenue > 0 ? round((($revenue - $cost) / $revenue) * 100, 1) : null,
+                ];
+            }
+        }
 
         return [
             'columns' => [
@@ -501,19 +550,16 @@ final class ReportData
                 'customer' => ['label' => 'Customer', 'type' => 'text'],
                 'destination' => ['label' => 'To', 'type' => 'text'],
                 'status' => ['label' => 'Status', 'type' => 'badge'],
+                'currency' => ['label' => 'Cur.', 'type' => 'text'],
                 'revenue' => ['label' => 'Revenue', 'type' => 'money'],
                 'fuel_cost' => ['label' => 'Fuel', 'type' => 'money'],
                 'expense_cost' => ['label' => 'Claims and bills', 'type' => 'money'],
                 'total_cost' => ['label' => 'Total cost', 'type' => 'money'],
                 'margin' => ['label' => 'Margin', 'type' => 'money'],
-                'margin_pct' => ['label' => 'Margin', 'type' => 'percent'],
+                'margin_pct' => ['label' => 'Margin %', 'type' => 'percent'],
             ],
             'rows' => $rows,
-            'totals' => [
-                'revenue' => array_sum(array_map('floatval', array_column($rows, 'revenue'))),
-                'total_cost' => array_sum(array_map('floatval', array_column($rows, 'total_cost'))),
-                'margin' => array_sum(array_map('floatval', array_column($rows, 'margin'))),
-            ],
+            'money_sum' => ['revenue', 'fuel_cost', 'expense_cost', 'total_cost', 'margin'],
         ];
     }
 
@@ -521,6 +567,7 @@ final class ReportData
     {
         $rows = self::rows(
             "SELECT e.category,
+                    e.currency,
                     COUNT(*) AS claims,
                     COALESCE(SUM(e.amount), 0) AS total,
                     COALESCE(SUM(CASE WHEN e.status = 'approved' THEN e.amount ELSE 0 END), 0) AS approved,
@@ -530,14 +577,17 @@ final class ReportData
              FROM expenses e
              WHERE e.deleted_at IS NULL
                AND e.expense_date BETWEEN ? AND ?
-             GROUP BY e.category
-             ORDER BY total DESC",
+             GROUP BY e.category, e.currency
+             ORDER BY e.category, e.currency",
             [$from, $to]
         );
 
         return [
+            'money_sum' => ['total', 'approved', 'pending', 'rejected'],
+            'count_sum' => ['claims'],
             'columns' => [
                 'category' => ['label' => 'Category', 'type' => 'code'],
+                'currency' => ['label' => 'Cur.', 'type' => 'text'],
                 'claims' => ['label' => 'Claims', 'type' => 'number'],
                 'total' => ['label' => 'Total', 'type' => 'money'],
                 'approved' => ['label' => 'Approved', 'type' => 'money'],
@@ -560,15 +610,9 @@ final class ReportData
     {
         $rows = self::tableExists($side === 'payable' ? 'supplier_bills' : 'invoices') ? Payables::aging($side, $asOf) : [];
 
-        // Totals only mean something when every row is in the same money.
-        $totals = [];
-        if (count(array_unique(array_column($rows, 'currency'))) === 1) {
-            foreach (['current', 'd30', 'd60', 'd90', 'd90plus', 'total'] as $column) {
-                $totals[$column] = array_sum(array_column($rows, $column));
-            }
-        }
-
         return [
+            // Totalled per currency in run(), never across them.
+            'money_sum' => ['current', 'd30', 'd60', 'd90', 'd90plus', 'total'],
             'columns' => [
                 'party' => ['label' => $side === 'payable' ? 'Supplier' : 'Customer', 'type' => 'text'],
                 'currency' => ['label' => 'Cur.', 'type' => 'text'],
@@ -580,7 +624,7 @@ final class ReportData
                 'total' => ['label' => 'Total owed', 'type' => 'money'],
             ],
             'rows' => $rows,
-            'totals' => $totals,
+            'totals' => [],
         ];
     }
 

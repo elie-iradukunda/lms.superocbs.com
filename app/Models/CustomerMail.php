@@ -48,16 +48,20 @@ final class CustomerMail
         $from = self::place($request, 'from_depot', 'pickup_location');
         $to = self::place($request, 'to_depot', 'destination');
         $currency = (string) ($request['currency'] ?: Currency::base());
-        $holdsUntil = date('j F Y', strtotime('+30 days'));
+        $holdsUntil = \human_date(date('Y-m-d', strtotime('+30 days')));
+        $vat = rtrim(rtrim(number_format(Settings::float('tax_rate', 18), 2, '.', ''), '0'), '.');
+        $pdf = Documents::quotation($requestId);
 
         return self::send($request, [
             'key' => 'quote-' . $requestId,
             'subject' => sprintf('Quotation for transport, %s to %s', $from, $to),
             'heading' => sprintf('Transport quotation — %s to %s', $from, $to),
+            'preheader' => sprintf('Our price: %s excluding VAT, open until %s.', Currency::format((float) $request['quoted_amount'], $currency), $holdsUntil),
             'opening' => sprintf(
-                'Thank you for your enquiry. We are pleased to offer the following terms for carrying your goods from %s to %s.',
+                'Thank you for your enquiry. We are pleased to offer the following terms for carrying your goods from %s to %s.%s',
                 $from,
-                $to
+                $to,
+                $pdf !== null ? ' The quotation is attached as a PDF.' : ''
             ),
             'items' => [
                 'title' => 'Our offer',
@@ -68,9 +72,9 @@ final class CustomerMail
                     ['detail' => 'Weight', 'value' => self::kg((float) $request['weight_kg'])],
                     ['detail' => 'Collection from', 'value' => $from],
                     ['detail' => 'Delivery to', 'value' => $to],
-                    ['detail' => 'Required by', 'value' => date('j F Y', (int) strtotime((string) $request['required_date']))],
+                    ['detail' => 'Required by', 'value' => \human_date((string) $request['required_date'])],
                 ],
-                'totals' => ['Total price' => Currency::format((float) $request['quoted_amount'], $currency)],
+                'totals' => ['Total price, excluding VAT' => Currency::format((float) $request['quoted_amount'], $currency)],
             ],
             // No internal data block: a customer wants the offer and the terms,
             // not the reference the office files it under. The reference goes in
@@ -82,9 +86,11 @@ final class CustomerMail
                     $from,
                     $to
                 ),
+                sprintf('Prices exclude VAT (%s%%), which is added on the invoice.', $vat),
                 sprintf('This quotation is open for acceptance until %s.', $holdsUntil),
                 sprintf('To accept, simply reply to this message. Please quote reference %s in any correspondence.', $request['reference_code']),
             ],
+            'attachments' => $pdf !== null ? [$pdf] : [],
             'what' => 'quotation',
             'entity' => 'requests',
         ]);
@@ -98,13 +104,14 @@ final class CustomerMail
         foreach (self::shipmentsOn($tripId) as $shipment) {
             $collect = self::place($shipment, 'to_depot', 'destination');
             $arrival = trim((string) $shipment['planned_arrival_at']) !== ''
-                ? date('l j F Y, H:i', (int) strtotime((string) $shipment['planned_arrival_at']))
+                ? date('l', (int) strtotime((string) $shipment['planned_arrival_at'])) . ' ' . \human_date((string) $shipment['planned_arrival_at'], true)
                 : 'to be confirmed';
 
             $ok = self::send($shipment, [
                 'key' => 'ontheway-' . $shipment['id'],
                 'subject' => sprintf('Your consignment %s has left for %s', $shipment['shipment_code'], $collect),
                 'heading' => sprintf('Your goods are on the way to %s', $collect),
+                'preheader' => sprintf('Consignment %s is in transit. Expected: %s.', $shipment['shipment_code'], $arrival),
                 'opening' => sprintf(
                     'We are writing to confirm that your consignment left %s today and is now in transit to %s. The details are set out below for your records.',
                     self::place($shipment, 'from_depot', 'origin'),
@@ -170,6 +177,7 @@ final class CustomerMail
             'key' => 'arrived-' . $deliveryId,
             'subject' => sprintf('Ready for collection at %s — %s', $where, $delivery['delivery_code']),
             'heading' => 'Ready for collection',
+            'tone' => 'success',
             'opening' => sprintf(
                 'Your goods have arrived at %s and are ready for you to collect. Please bring identification, and quote the reference below.',
                 $where
@@ -182,7 +190,7 @@ final class CustomerMail
                     ['detail' => 'Reference', 'value' => (string) $delivery['delivery_code']],
                     ['detail' => 'Goods', 'value' => (string) ($delivery['cargo_description'] ?: 'As consigned')],
                     ['detail' => 'Collect from', 'value' => $where],
-                    ['detail' => 'Arrived', 'value' => date('Y-m-d H:i')],
+                    ['detail' => 'Arrived', 'value' => \human_date((string) ($delivery['dropped_at'] ?: date('Y-m-d H:i:s')), true)],
                 ],
             ],
             'facts' => array_filter([
@@ -203,11 +211,14 @@ final class CustomerMail
             return false;
         }
 
+        $pdf = Documents::deliveryNote($deliveryId);
+
         return self::send($delivery, [
             'key' => 'handedover-' . $deliveryId,
-            'subject' => sprintf('Collected — %s', $delivery['delivery_code']),
+            'subject' => sprintf('Your goods were collected — %s', $delivery['delivery_code']),
             'heading' => 'Goods handed over',
-            'opening' => 'This confirms that the goods below have been handed over. Thank you for your business.',
+            'opening' => 'This confirms that the goods below have been handed over. Thank you for your business.'
+                . ($pdf !== null ? ' The delivery note is attached as a PDF.' : ''),
             'items' => [
                 'title' => 'Handed over',
                 'columns' => ['detail' => 'Detail', 'value' => 'Value'],
@@ -216,11 +227,12 @@ final class CustomerMail
                     ['detail' => 'Reference', 'value' => (string) $delivery['delivery_code']],
                     ['detail' => 'Goods', 'value' => (string) ($delivery['cargo_description'] ?: 'As consigned')],
                     ['detail' => 'Received by', 'value' => (string) ($delivery['collected_by'] ?: $delivery['recipient_name'])],
-                    ['detail' => 'On', 'value' => (string) ($delivery['delivered_at'] ?: date('Y-m-d H:i'))],
+                    ['detail' => 'On', 'value' => \human_date((string) ($delivery['delivered_at'] ?: date('Y-m-d H:i:s')), true)],
                 ],
             ],
             'facts' => ['Proof of delivery' => $delivery['proof_file'] !== null && $delivery['proof_file'] !== '' ? 'Held on file' : 'Being filed'],
             'closing' => ['Our invoice for this consignment follows separately.'],
+            'attachments' => $pdf !== null ? [$pdf] : [],
             'what' => 'confirmation',
             'entity' => 'deliveries',
         ]);
@@ -266,13 +278,14 @@ final class CustomerMail
             'to_name' => $name,
             'subject' => $message['subject'],
             'heading' => $message['heading'],
+            'preheader' => $message['preheader'] ?? '',
+            'tone' => $message['tone'] ?? '',
+            'audience' => 'external',
             'lines' => [sprintf('Dear %s,', $name !== '' ? $name : 'Customer'), $message['opening']],
             'items' => $message['items'] ?? null,
             'facts' => $message['facts'] ?? [],
             'closing' => $message['closing'] ?? [],
-            // Customer mail is a letter from the company, and letters may be
-            // answered. The internal signature tells staff not to reply.
-            'signature' => sprintf('Sent by %s. You may reply to this message and it will reach us.', \company_name()),
+            'attachments' => $message['attachments'] ?? [],
             'entity_type' => $message['entity'],
             'entity_id' => (string) ($who['reference_code'] ?? $who['shipment_code'] ?? $who['delivery_code'] ?? ''),
         ]);

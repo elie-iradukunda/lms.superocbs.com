@@ -60,7 +60,7 @@ final class Notifier
 
         self::toRole(
             'finance',
-            'Payment received',
+            sprintf('Payment received: %s from %s', $money((float) $row['amount']), $row['customer_name'] ?: 'a customer'),
             sprintf('%s of %s against %s. %s still outstanding.',
                 $row['payment_code'], $money((float) $row['amount']), $row['invoice_number'], $money($outstanding)),
             'payments',
@@ -73,18 +73,22 @@ final class Notifier
             return;
         }
 
+        $pdf = Documents::receipt($paymentId);
         \Support\Mailer::send([
             'key' => 'payment-receipt-' . $paymentId,
             'category' => 'invoice',
             'to' => trim((string) $row['email']),
             'to_name' => trim((string) ($row['contact_name'] ?: $row['customer_name'])),
-            'subject' => sprintf('Payment received — %s', $row['invoice_number']),
+            'subject' => sprintf('Receipt %s: payment of %s received', $row['payment_code'], $money((float) $row['amount'])),
             'heading' => 'Receipt ' . $row['payment_code'],
+            'tone' => 'success',
+            'preheader' => sprintf('We received %s against invoice %s. Thank you.', $money((float) $row['amount']), $row['invoice_number']),
             'lines' => [
                 sprintf('Dear %s,', $row['contact_name'] ?: $row['customer_name']),
                 sprintf(
-                    'Thank you. We confirm receipt of your payment against invoice %s. This message serves as your receipt.',
-                    $row['invoice_number']
+                    'Thank you. We confirm receipt of your payment against invoice %s.%s',
+                    $row['invoice_number'],
+                    $pdf !== null ? ' Your receipt is attached as a PDF.' : ' This message serves as your receipt.'
                 ),
             ],
             'items' => [
@@ -101,7 +105,7 @@ final class Notifier
             'facts' => [
                 'Receipt number' => (string) $row['payment_code'],
                 'Invoice number' => (string) $row['invoice_number'],
-                'Date received' => date('Y-m-d', (int) strtotime((string) $row['paid_at'])),
+                'Date received' => \human_date((string) $row['paid_at']),
                 'Paid by' => PaymentMethod::name((string) $row['method']),
                 'Your reference' => (string) ($row['reference'] ?: '—'),
             ],
@@ -111,6 +115,7 @@ final class Notifier
                     : 'This invoice is now settled in full. No further action is needed.',
                 'If any detail above is not as you expected, reply to this message and we will check it.',
             ],
+            'attachments' => $pdf !== null ? [$pdf] : [],
             'entity_type' => 'payments',
             'entity_id' => (string) $row['payment_code'],
         ]);
@@ -185,7 +190,7 @@ final class Notifier
                     'licence-' . md5($driver['full_name'] . $driver['license_expiry']),
                     $fleetAndOwners,
                     'Driver licence expiring',
-                    sprintf('%s has a licence expiring on %s.', $driver['full_name'], $driver['license_expiry']),
+                    sprintf('%s has a licence expiring on %s.', $driver['full_name'], self::when((string) $driver['license_expiry'])),
                     'drivers',
                     'warning'
                 );
@@ -204,7 +209,7 @@ final class Notifier
                     'vehdoc-' . md5((string) $document['document_code'] . $document['expires_on']),
                     $fleetAndOwners,
                     'Vehicle document expiring',
-                    sprintf('%s for %s expires on %s.', ucfirst(str_replace('_', ' ', (string) $document['document_type'])), $document['plate_number'], $document['expires_on']),
+                    sprintf('%s for %s expires on %s.', ucfirst(str_replace('_', ' ', (string) $document['document_type'])), $document['plate_number'], self::when((string) $document['expires_on'])),
                     'vehicle_documents',
                     'danger'
                 );
@@ -221,7 +226,7 @@ final class Notifier
                     'service-' . md5($vehicle['plate_number'] . $vehicle['next_service_date']),
                     $fleetAndOwners,
                     'Service due',
-                    sprintf('%s is due for service on %s.', $vehicle['plate_number'], $vehicle['next_service_date']),
+                    sprintf('%s is due for service on %s.', $vehicle['plate_number'], self::when((string) $vehicle['next_service_date'])),
                     'maintenance',
                     'warning'
                 );
@@ -239,14 +244,16 @@ final class Notifier
             }
 
             $db->exec("UPDATE invoices SET status = 'overdue' WHERE deleted_at IS NULL AND status IN ('issued','partially_paid') AND due_date < CURDATE()");
-            foreach ($db->query("SELECT invoice_number, due_date, (total_amount - amount_paid) AS balance FROM invoices WHERE deleted_at IS NULL AND status = 'overdue'")->fetchAll() as $invoice) {
+            foreach ($db->query("SELECT invoice_number, due_date, currency, (total_amount - amount_paid) AS balance FROM invoices WHERE deleted_at IS NULL AND status = 'overdue'")->fetchAll() as $invoice) {
                 self::once(
                     'overdue-' . md5((string) $invoice['invoice_number']),
                     ['finance', 'super_admin', 'management'],
                     'Invoice overdue',
-                    sprintf('%s was due on %s with %s outstanding.', $invoice['invoice_number'], $invoice['due_date'], Settings::money((float) $invoice['balance'])),
+                    sprintf('%s was due on %s with %s outstanding.', $invoice['invoice_number'], self::when((string) $invoice['due_date']), Currency::format((float) $invoice['balance'], (string) ($invoice['currency'] ?: Currency::base()))),
                     'invoices',
-                    'danger'
+                    'danger',
+                    'invoices',
+                    (string) $invoice['invoice_number']
                 );
             }
 
@@ -259,7 +266,21 @@ final class Notifier
         }
     }
 
-    /** Inserts only if that key has never been raised, so an alert is not repeated every page load. */
+    /** "12 Oct 2026 (in 5 days)": the date, and how long is left or how long ago it passed. */
+    private static function when(string $date): string
+    {
+        $days = (int) floor((strtotime($date) - strtotime(date('Y-m-d'))) / 86400);
+        $left = match (true) {
+            $days === 0 => 'today',
+            $days === 1 => 'tomorrow',
+            $days === -1 => 'yesterday',
+            $days > 1 => 'in ' . $days . ' days',
+            default => abs($days) . ' days ago',
+        };
+
+        return \human_date($date) . ' (' . $left . ')';
+    }
+
     /**
      * Raises an alert once, for everyone it concerns.
      *
@@ -270,7 +291,7 @@ final class Notifier
      *
      * @param string|list<string> $roles
      */
-    private static function once(string $key, string|array $roles, string $title, string $message, ?string $route, string $severity): void
+    private static function once(string $key, string|array $roles, string $title, string $message, ?string $route, string $severity, ?string $entityType = null, ?string $entityId = null): void
     {
         $statement = Database::connection()->prepare(
             'INSERT IGNORE INTO notifications (notification_key, user_id, role_key, title, message, link_route, severity)
@@ -285,7 +306,7 @@ final class Notifier
             // Only email an alert the first time it is raised, which is what the
             // INSERT IGNORE above has just told us.
             if ($statement->rowCount() > 0 && Settings::int('email_alerts_to_roles', 1) === 1) {
-                self::email($rowKey, null, $roleKey, $title, $message, $route, $severity, 'alert', null, null);
+                self::email($rowKey, null, $roleKey, $title, $message, $route, $severity, 'alert', $entityType, $entityId);
             }
         }
     }
@@ -316,6 +337,10 @@ final class Notifier
                 return;
             }
 
+            [$code, $path] = self::reference($route, $entityType, $entityId);
+            // "A · B · C" on the bell reads as three lines in a letter.
+            $lines = array_values(array_filter(array_map('trim', explode(' · ', $message)), static fn (string $l): bool => $l !== ''));
+
             foreach (self::recipients($userId, $roleKey) as $person) {
                 Mailer::send([
                     // One message per person per notification, so a role of six
@@ -325,16 +350,14 @@ final class Notifier
                     'to' => $person['email'],
                     'to_name' => $person['full_name'],
                     'user_id' => (int) $person['id'],
-                    'subject' => $title,
+                    'subject' => $code !== '' && !str_contains($title, $code) ? $title . ': ' . $code : $title,
                     'heading' => $title,
-                    'lines' => [$message],
-                    'facts' => array_filter([
-                        'Reference' => $entityId,
-                        'Area' => $entityType === null ? null : ucfirst(str_replace('_', ' ', $entityType)),
-                    ]),
-                    'action' => $route === null || $route === '' ? null : [
-                        'label' => 'Open it in LMS',
-                        'path' => $route,
+                    'tone' => in_array($severity, ['danger', 'warning', 'success'], true) ? $severity : '',
+                    'lines' => $lines !== [] ? $lines : [$message],
+                    'facts' => $code !== '' ? ['Reference' => $code] : [],
+                    'action' => $path === null ? null : [
+                        'label' => $code !== '' ? 'Open ' . $code : 'Open in LMS',
+                        'path' => $path,
                     ],
                     'entity_type' => $entityType,
                     'entity_id' => $entityId,
@@ -344,6 +367,50 @@ final class Notifier
             // A notification is never worth failing the user's action for, and
             // an email even less so.
         }
+    }
+
+    /**
+     * The record a notification is about, by the code people know it by, and the
+     * page that opens it: the record itself rather than the whole list.
+     *
+     * @return array{0: string, 1: ?string}
+     */
+    private static function reference(?string $route, ?string $entityType, ?string $entityId): array
+    {
+        $entityId = trim((string) $entityId);
+        $route = trim((string) $route);
+        $path = $route === '' ? null : $route;
+        if ($entityId === '') {
+            return ['', $path];
+        }
+
+        if (!ctype_digit($entityId)) {
+            return [$entityId, $route === '' || $route === 'my-trips' ? $path : $route . '?' . http_build_query(['q' => $entityId], '', '&', PHP_QUERY_RFC3986)];
+        }
+
+        // A bare id: look up its code in the module it belongs to.
+        $code = '';
+        foreach (array_unique(array_filter([(string) $entityType, $route])) as $module) {
+            try {
+                if (!Schema::has($module)) {
+                    continue;
+                }
+                $definition = Schema::get($module);
+                if (empty($definition['table']) || empty($definition['code'])) {
+                    continue;
+                }
+                $statement = Database::connection()->prepare(sprintf('SELECT `%s` FROM `%s` WHERE id = ?', $definition['code'], $definition['table']));
+                $statement->execute([(int) $entityId]);
+                $code = (string) ($statement->fetchColumn() ?: '');
+                if ($code !== '') {
+                    break;
+                }
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        return [$code, $route === '' || $route === 'my-trips' ? $path : $route . '/' . $entityId];
     }
 
     /**

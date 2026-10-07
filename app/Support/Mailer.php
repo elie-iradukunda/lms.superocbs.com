@@ -139,6 +139,13 @@ final class Mailer
         $key = trim((string) ($message['key'] ?? '')) ?: 'msg-' . bin2hex(random_bytes(8));
         $subject = mb_substr(trim((string) ($message['subject'] ?? 'Update from LMS')), 0, 200);
 
+        // A customer, supplier or agent is written to as the company; staff get
+        // the system's own frame. Outsiders' replies go to the company mailbox.
+        $message['audience'] ??= self::isStaff($realRecipient) ? 'staff' : 'external';
+        if ($message['audience'] === 'external' && trim((string) ($message['reply_to'] ?? '')) === '') {
+            $message['reply_to'] = trim(\Models\Settings::get('company_email', ''));
+        }
+
         $html = $message['html'] ?? self::render($message, $realRecipient, $redirect !== '');
         $text = $message['text'] ?? self::plain($message);
 
@@ -361,13 +368,67 @@ final class Mailer
         $escape = static fn (mixed $v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 
         $heading = $escape($message['heading'] ?? $message['subject'] ?? 'Update');
+        $external = ($message['audience'] ?? 'external') !== 'staff';
 
         // A letter someone edited before sending arrives as HTML already, and is
         // cleaned again here so nothing unsafe reaches an inbox.
         $body = isset($message['body_html']) ? self::clean((string) $message['body_html']) : self::content($message);
 
-        // A message that asks for a reply cannot be signed "do not reply".
-        $signature = $escape($message['signature'] ?? self::signature());
+        // The header: the company's logo and name. Mail programs show images
+        // from a public address only, so the logo is served at /brand/logo.
+        $logoFile = \Models\CompanyImage::path(\Models\CompanyImage::LOGO);
+        $logo = $logoFile !== null
+            ? '<img src="' . $escape(self::link('brand/logo') . '?v=' . substr(md5((string) filemtime($logoFile)), 0, 8)) . '" alt="' . $escape($company)
+              . '" height="40" style="display:block;height:40px;width:auto;max-width:160px;border:0">'
+            : '';
+        $header = '<tr><td style="height:4px;line-height:4px;font-size:0;background:' . $colour . '">&nbsp;</td></tr>'
+            . '<tr><td style="padding:18px 26px 16px;border-bottom:1px solid #e9edf1">'
+            . '<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
+            . ($logo !== '' ? '<td style="padding-right:12px;vertical-align:middle">' . $logo . '</td>' : '')
+            . '<td style="vertical-align:middle"><span style="display:block;color:#18222c;font-size:17px;font-weight:700;letter-spacing:.2px">' . $escape($company) . '</span>'
+            . ($external ? '' : '<span style="display:block;color:#77828d;font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-top:2px">Logistics Management System</span>')
+            . '</td></tr></table></td></tr>';
+
+        // The first words an inbox shows under the subject: the point of the
+        // email, not the header. Hidden in the message itself.
+        $preheader = trim((string) ($message['preheader'] ?? ''));
+        if ($preheader === '') {
+            foreach ((array) ($message['lines'] ?? []) as $line) {
+                $line = trim((string) $line);
+                if ($line !== '' && !preg_match('/^(Dear|Hello)\b/i', $line)) {
+                    $preheader = $line;
+                    break;
+                }
+            }
+        }
+        $preheaderHtml = $preheader !== ''
+            ? '<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px">' . $escape(mb_substr($preheader, 0, 140)) . '</div>'
+            : '';
+
+        // Urgent and warning messages say so before anything else.
+        $tone = (string) ($message['tone'] ?? '');
+        $badge = match ($tone) {
+            'danger' => ['Urgent', '#b42332', '#fbe3e5'],
+            'warning' => ['Needs attention', '#9a6700', '#fdf1d8'],
+            default => null,
+        };
+        $badgeHtml = $badge === null ? '' : '<p style="margin:0 0 10px"><span style="display:inline-block;padding:3px 10px;border-radius:12px;background:' . $badge[2]
+            . ';color:' . $badge[1] . ';font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase">' . $badge[0] . '</span></p>';
+
+        // The foot: to an outsider, who we are and that a reply reaches us;
+        // to staff, that it came from the system.
+        if ($external) {
+            $details = Report::companyDetails();
+            $signature = (string) ($message['signature'] ?? 'Questions about this message? Reply to it and it reaches our team.');
+            $foot = '<p style="margin:0;font-size:11px;line-height:1.6;color:#5b6670">' . $escape($signature) . '</p>';
+            if (!str_contains($signature, $details) && trim($details) !== '') {
+                $foot .= '<p style="margin:6px 0 0;font-size:11px;line-height:1.6;color:#8a949e">' . $escape($company . '  ·  ' . $details) . '</p>';
+            }
+        } else {
+            $foot = '<p style="margin:0;font-size:11px;line-height:1.6;color:#8a949e">' . $escape($message['signature'] ?? self::signature()) . '</p>'
+                . '<p style="margin:6px 0 0;font-size:11px;color:#9aa4ad">Powered by ' . $escape(\vendor_name()) . ' &copy; ' . date('Y') . '</p>';
+        }
+
         $redirectNote = $redirected
             ? '<p style="margin:14px 0 0;padding:10px 12px;background:#fff8e6;border-left:3px solid #e0a800;font-size:12px;color:#6b5600">'
               . 'Test mode: this message was addressed to <strong>' . $escape($realRecipient)
@@ -378,23 +439,37 @@ final class Mailer
             . '<meta name="viewport" content="width=device-width,initial-scale=1">'
             . '<title>' . $escape($message['subject'] ?? 'Update') . '</title></head>'
             . '<body style="margin:0;padding:0;background:#f1f4f7;font-family:Segoe UI,Helvetica,Arial,sans-serif">'
+            . $preheaderHtml
             . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f1f4f7;padding:24px 12px">'
             . '<tr><td align="center">'
-            . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:580px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 10px rgba(20,30,40,.07)">'
-            . '<tr><td style="background:' . $colour . ';padding:18px 26px">'
-            . '<span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:.4px">' . $escape($company) . '</span>'
-            . '<span style="display:block;color:rgba(255,255,255,.82);font-size:11px;letter-spacing:1.2px;text-transform:uppercase;margin-top:2px">Logistics Management System</span>'
-            . '</td></tr>'
-            . '<tr><td style="padding:26px;font-size:14px;line-height:1.6;color:#33404c">'
+            . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 10px rgba(20,30,40,.07)">'
+            . $header
+            . '<tr><td style="padding:24px 26px 26px;font-size:14px;line-height:1.6;color:#33404c">'
+            . $badgeHtml
             . '<h1 style="margin:0 0 16px;font-size:19px;line-height:1.35;color:#18222c;font-weight:700">' . $heading . '</h1>'
             . $body
             . $redirectNote
             . '</td></tr>'
-            . '<tr><td style="padding:16px 26px;background:#f7f9fb;border-top:1px solid #e9edf1">'
-            . '<p style="margin:0;font-size:11px;line-height:1.6;color:#8a949e">' . $signature . '</p>'
-            . '<p style="margin:6px 0 0;font-size:11px;color:#9aa4ad">Powered by ' . $escape(\vendor_name()) . ' &copy; ' . date('Y') . '</p>'
-            . '</td></tr>'
+            . '<tr><td style="padding:16px 26px;background:#f7f9fb;border-top:1px solid #e9edf1">' . $foot . '</td></tr>'
             . '</table></td></tr></table></body></html>';
+    }
+
+    /** True when the address belongs to a member of staff with an account. */
+    private static function isStaff(string $email): bool
+    {
+        static $known = [];
+        $email = strtolower(trim($email));
+        if (!array_key_exists($email, $known)) {
+            try {
+                $statement = self::db()->prepare('SELECT COUNT(*) FROM users WHERE LOWER(email) = ? AND deleted_at IS NULL');
+                $statement->execute([$email]);
+                $known[$email] = (int) $statement->fetchColumn() > 0;
+            } catch (\Throwable) {
+                $known[$email] = false;
+            }
+        }
+
+        return $known[$email];
     }
 
     /**
@@ -426,18 +501,35 @@ final class Mailer
 
             $body .= '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 18px;border-collapse:collapse">';
 
-            $body .= '<tr>';
-            foreach ($columns as $key => $label) {
-                $body .= '<th align="' . $align((string) $key) . '" style="padding:8px 10px;background:#f2f5f8;border-bottom:2px solid ' . $colour
-                    . ';font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:#4a5560;font-weight:700">' . $escape($label) . '</th>';
+            // A two-column "Detail / Value" list reads as a list: no heading row,
+            // labels in grey, values in bold, like the facts below.
+            $labels = array_map(static fn ($l): string => strtolower(trim((string) $l)), array_values($columns));
+            $isList = count($columns) === 2 && $labels[0] === 'detail' && $labels[1] === 'value';
+
+            if (!$isList) {
+                $body .= '<tr>';
+                foreach ($columns as $key => $label) {
+                    $body .= '<th align="' . $align((string) $key) . '" style="padding:8px 10px;background:#f2f5f8;border-bottom:2px solid ' . $colour
+                        . ';font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:#4a5560;font-weight:700' . ($align((string) $key) === 'right' ? ';white-space:nowrap' : '') . '">' . $escape($label) . '</th>';
+                }
+                $body .= '</tr>';
             }
-            $body .= '</tr>';
 
             foreach ($items['rows'] as $row) {
                 $body .= '<tr>';
+                $first = true;
                 foreach ($columns as $key => $label) {
-                    $body .= '<td align="' . $align((string) $key) . '" style="padding:9px 10px;border-bottom:1px solid #e9edf1;font-size:14px;color:#22303c">'
-                        . $escape($row[$key] ?? '') . '</td>';
+                    if ($isList) {
+                        $body .= $first
+                            ? '<td style="padding:7px 12px 7px 0;font-size:13px;color:#77828d;border-bottom:1px solid #e9edf1;width:38%">' . $escape($row[$key] ?? '') . '</td>'
+                            : '<td style="padding:7px 0;font-size:14px;color:#22303c;border-bottom:1px solid #e9edf1;font-weight:600">' . $escape($row[$key] ?? '') . '</td>';
+                    } else {
+                        // Amounts stay on one line: "USD 2,350.00", never "USD" over "2,350.00".
+                        $nowrap = $align((string) $key) === 'right' ? ';white-space:nowrap' : '';
+                        $body .= '<td align="' . $align((string) $key) . '" style="padding:9px 10px;border-bottom:1px solid #e9edf1;font-size:14px;color:#22303c' . $nowrap . '">'
+                            . $escape($row[$key] ?? '') . '</td>';
+                    }
+                    $first = false;
                 }
                 $body .= '</tr>';
             }
@@ -446,7 +538,7 @@ final class Mailer
                 $span = max(1, count($columns) - 1);
                 $body .= '<tr>'
                     . '<td colspan="' . $span . '" align="right" style="padding:9px 10px;font-size:13px;color:#77828d">' . $escape($label) . '</td>'
-                    . '<td align="right" style="padding:9px 10px;font-size:15px;color:#18222c;font-weight:700;border-top:1px solid #e9edf1">' . $escape($value) . '</td>'
+                    . '<td align="right" style="padding:9px 10px;font-size:15px;color:#18222c;font-weight:700;border-top:1px solid #e9edf1;white-space:nowrap">' . $escape($value) . '</td>'
                     . '</tr>';
             }
 

@@ -17,14 +17,14 @@ use Support\Mailer;
  * and/or whole roles). scripts/reports.php runs every morning from cron and
  * sends whatever is due; the "Send now" button sends one immediately.
  *
- * The report is set out as a table inside the email itself, so it reads on a
- * phone without opening anything, with a button to the full report.
+ * The email carries the headline figures, per currency, so it reads on a phone;
+ * the full report travels with it as a PDF and an Excel workbook, the same
+ * files the Export buttons produce.
  */
 final class ReportSchedule
 {
     public const FREQUENCIES = ['daily' => 'Daily (yesterday)', 'weekly' => 'Weekly (last 7 days)', 'monthly' => 'Monthly (last month)'];
 
-    private const MAX_ROWS = 60;
 
     /**
      * Sends every active subscription that is due (or all of them with $force).
@@ -72,19 +72,10 @@ final class ReportSchedule
             return self::finish($id, $key, 0, 'No recipient: add an email address or a role.');
         }
 
-        $columns = array_map(static fn (array $c): string => (string) $c['label'], $report['columns']);
-        $numeric = array_keys(array_filter($report['columns'], static fn (array $c): bool => in_array($c['type'] ?? '', ['number', 'money', 'decimal', 'percent'], true)));
-        $rows = [];
-        foreach (array_slice($report['rows'], 0, self::MAX_ROWS) as $row) {
-            $line = [];
-            foreach ($report['columns'] as $column => $spec) {
-                $line[$column] = self::format($row[$column] ?? null, (string) ($spec['type'] ?? 'text'));
-            }
-            $rows[] = $line;
-        }
-
-        $period = $from === $to ? date('d M Y', strtotime($from)) : date('d M Y', strtotime($from)) . ' to ' . date('d M Y', strtotime($to));
-        $truncated = count($report['rows']) > self::MAX_ROWS;
+        $period = $from === $to ? \human_date($from) : \human_date($from) . ' to ' . \human_date($to);
+        $count = count($report['rows']);
+        $summary = self::summary($report);
+        $files = $count > 0 ? self::files($report, $id) : [];
         $sent = 0;
 
         foreach ($recipients as $email => $name) {
@@ -95,13 +86,22 @@ final class ReportSchedule
                 'to_name' => $name,
                 'subject' => sprintf('%s: %s', $report['label'], $period),
                 'heading' => $report['label'],
+                'preheader' => $count === 0 ? 'No activity in this period.' : sprintf('%d line%s for %s.', $count, $count === 1 ? '' : 's', $period),
                 'lines' => array_filter([
+                    sprintf('Dear %s,', $name),
                     sprintf('Your %s report for %s.', strtolower((string) $subscription['frequency']), $period),
                     $report['description'] ?? '',
-                    $rows === [] ? 'There was no activity in this period.' : '',
-                    $truncated ? sprintf('The first %d of %d rows are shown; open the report for the rest.', self::MAX_ROWS, count($report['rows'])) : '',
+                    $count === 0
+                        ? 'There was no activity in this period.'
+                        : sprintf('It has %d line%s. The full report is attached as a PDF and an Excel workbook.', $count, $count === 1 ? '' : 's'),
                 ]),
-                'items' => $rows === [] ? [] : ['columns' => $columns, 'rows' => $rows, 'numeric' => $numeric],
+                'items' => $summary === [] ? [] : [
+                    'title' => 'Totals',
+                    'columns' => ['detail' => 'Detail', 'value' => 'Value'],
+                    'numeric' => [],
+                    'rows' => $summary,
+                ],
+                'attachments' => $files,
                 'action' => ['label' => 'Open the full report', 'path' => 'reports/view/' . $key . '?from=' . $from . '&to=' . $to],
                 'entity_type' => 'report_emails',
                 'entity_id' => (string) $id,
@@ -112,6 +112,63 @@ final class ReportSchedule
         }
 
         return self::finish($id, $key, $sent, sprintf('%d email(s) for %s queued%s.', $sent, $period, Mailer::enabled() ? '' : ' (email is switched off, so they wait in the outbox)'));
+    }
+
+    /**
+     * The report's totals, one line per currency: money is never added across
+     * currencies.
+     *
+     * @return list<array{detail: string, value: string}>
+     */
+    private static function summary(array $report): array
+    {
+        $lines = [];
+        foreach ($report['money_totals'] ?? [] as $currency => $totals) {
+            foreach ($totals as $column => $amount) {
+                $label = (string) ($report['columns'][$column]['label'] ?? $column);
+                $lines[] = ['detail' => $label . ' (' . $currency . ')', 'value' => Currency::format((float) $amount, (string) $currency)];
+            }
+        }
+        foreach ($report['totals'] ?? [] as $column => $value) {
+            $spec = $report['columns'][$column] ?? null;
+            if ($spec === null || ($spec['type'] ?? '') === 'money' || !is_numeric($value)) {
+                continue;
+            }
+            $lines[] = ['detail' => (string) $spec['label'], 'value' => self::format($value, (string) ($spec['type'] ?? 'number'))];
+        }
+
+        return $lines;
+    }
+
+    /**
+     * The PDF and the workbook, written under uploads so the outbox can send
+     * them again on a retry.
+     *
+     * @return list<array{filename: string, path: string}>
+     */
+    private static function files(array $report, int $id): array
+    {
+        $doc = \Controllers\ReportController::document($report);
+        $folder = 'reports/' . date('Y-m');
+        $directory = Mailer::uploadsRoot() . '/' . $folder;
+        if (!is_dir($directory) && !@mkdir($directory, 0775, true) && !is_dir($directory)) {
+            return [];
+        }
+
+        $files = [];
+        foreach (['pdf' => static fn (): string => \Support\PdfWriter::build($doc), 'xlsx' => static fn (): string => \Support\XlsxWriter::build($doc)] as $extension => $build) {
+            try {
+                $name = \Support\Report::filename($doc, $extension);
+                $stored = $id . '-' . date('His') . '-' . $name;
+                if (@file_put_contents($directory . '/' . $stored, $build()) !== false) {
+                    $files[] = ['filename' => $name, 'path' => $folder . '/' . $stored];
+                }
+            } catch (\Throwable) {
+                // The email still goes with the totals and the link.
+            }
+        }
+
+        return $files;
     }
 
     /** Is this subscription due today? */
@@ -184,7 +241,7 @@ final class ReportSchedule
         }
 
         return match ($type) {
-            'money' => number_format((float) $value, 0),
+            'money' => number_format((float) $value, 2),
             'decimal' => number_format((float) $value, 2),
             'number' => number_format((float) $value),
             'percent' => number_format((float) $value, 1) . '%',

@@ -825,6 +825,9 @@ final class Workflow
             return sprintf(' %s has no email address on file, so no order was sent.', $who === false ? 'That supplier' : $who['supplier_name']);
         }
 
+        // Approved, the request is an order: the supplier sees PO-, not PR-.
+        $order = Documents::orderNumber($code);
+
         $lines = $db->prepare(
             'SELECT item_name, quantity, unit_of_measure, unit_price, line_total
                FROM purchase_request_lines WHERE purchase_request_id = ? ORDER BY id'
@@ -838,7 +841,7 @@ final class Workflow
         foreach ($lines->fetchAll(PDO::FETCH_ASSOC) as $line) {
             $rows[] = [
                 'item_name' => (string) $line['item_name'],
-                'quantity' => rtrim(rtrim(number_format((float) $line['quantity'], 2, '.', ''), '0'), '.') . ' ' . ($line['unit_of_measure'] ?: 'unit'),
+                'quantity' => Documents::units((float) $line['quantity'], (string) ($line['unit_of_measure'] ?: 'unit')),
                 'unit_price' => $money((float) $line['unit_price']),
                 'line_total' => $money((float) $line['line_total']),
             ];
@@ -862,19 +865,22 @@ final class Workflow
             $warehouse = $row === false ? '' : trim($row['warehouse_name'] . ', ' . $row['location']);
         }
 
+        $pdf = Documents::purchaseOrder((int) $request['id']);
+        $required = (string) ($request['expected_date'] ?? '');
         $result = \Support\Mailer::send([
             'key' => 'purchase-order-' . $request['id'],
             'category' => 'invoice',
             'to' => trim((string) $who['email']),
             'to_name' => trim((string) ($who['contact_name'] ?: $who['supplier_name'])),
-            'subject' => sprintf('Purchase order %s from %s', $code, \company_name()),
-            'heading' => 'Purchase order ' . $code,
+            'subject' => sprintf('Purchase order %s from %s', $order, \company_name()),
+            'heading' => 'Purchase order ' . $order,
+            'preheader' => sprintf('Order %s for %s. Please confirm the delivery date.', $order, $money((float) $request['amount'])),
             'lines' => [
                 sprintf('Dear %s,', $who['contact_name'] ?: $who['supplier_name']),
                 sprintf(
-                    '%s wishes to place the following order with %s. This order has been approved internally and the reference above should be quoted on your delivery note and invoice.',
-                    \company_name(),
-                    $who['supplier_name']
+                    'Please supply the items below. Quote %s on your delivery note and invoice.%s',
+                    $order,
+                    $pdf !== null ? ' The signed order is attached as a PDF.' : ''
                 ),
             ],
             'items' => [
@@ -885,16 +891,19 @@ final class Workflow
                 'totals' => ['Order value' => $money((float) $request['amount'])],
             ],
             'facts' => [
-                'Order reference' => $code,
-                'Order date' => date('Y-m-d'),
+                'Order number' => $order,
+                'Order date' => \human_date(date('Y-m-d')),
                 'Deliver to' => $warehouse !== '' ? $warehouse : 'To be confirmed',
-                'Required by' => (string) ($request['expected_date'] ?: 'As soon as possible'),
+                // A date already behind us is no date to deliver by.
+                'Deliver by' => $required !== '' && $required >= date('Y-m-d') ? \human_date($required) : 'As soon as possible',
                 'Payment terms' => sprintf('%d days from delivery', (int) ($who['payment_terms_days'] ?? 30)),
+                'Invoice to' => \company_name() . (($tin = trim(Settings::get('company_tin', ''))) !== '' ? ', TIN ' . $tin : ''),
             ],
             'closing' => [
-                'Please confirm acceptance of this order and the delivery date by replying to this message.',
-                'Goods are to be delivered to the address above during working hours, accompanied by a delivery note quoting this order reference.',
+                'Please reply to confirm the order and your delivery date.',
+                'Deliver during working hours with a delivery note quoting ' . $order . '.',
             ],
+            'attachments' => $pdf !== null ? [$pdf] : [],
             'entity_type' => 'procurement',
             'entity_id' => $code,
         ]);
@@ -938,7 +947,7 @@ final class Workflow
         foreach ($lines->fetchAll(PDO::FETCH_ASSOC) as $line) {
             $rows[] = [
                 'item_name' => (string) $line['item_name'],
-                'quantity' => rtrim(rtrim(number_format((float) $line['quantity'], 2, '.', ''), '0'), '.') . ' ' . ($line['unit_of_measure'] ?: 'unit'),
+                'quantity' => Documents::units((float) $line['quantity'], (string) ($line['unit_of_measure'] ?: 'unit')),
                 'line_total' => $money((float) $line['line_total']),
             ];
         }
@@ -960,19 +969,20 @@ final class Workflow
         }
 
         $terms = (int) ($who['payment_terms_days'] ?? 30);
+        $order = Documents::orderNumber($code);
 
         $result = \Support\Mailer::send([
             'key' => 'goods-received-' . $request['id'],
             'category' => 'invoice',
             'to' => trim((string) $who['email']),
             'to_name' => trim((string) ($who['contact_name'] ?: $who['supplier_name'])),
-            'subject' => sprintf('Goods received against order %s', $code),
-            'heading' => 'Goods received — ' . $code,
+            'subject' => sprintf('Goods received against order %s', $order),
+            'heading' => 'Goods received — ' . $order,
             'lines' => [
                 sprintf('Dear %s,', $who['contact_name'] ?: $who['supplier_name']),
                 sprintf(
                     'We confirm that the goods ordered under %s were delivered and checked in%s. The quantities received are set out below.',
-                    $code,
+                    $order,
                     $where !== '' ? ' at ' . $where : ''
                 ),
             ],
@@ -984,14 +994,14 @@ final class Workflow
                 'totals' => ['Total received' => $money((float) $request['amount'])],
             ],
             'facts' => [
-                'Order reference' => $code,
-                'Received on' => date('j F Y'),
+                'Order number' => $order,
+                'Received on' => \human_date(date('Y-m-d')),
                 'Received at' => $where !== '' ? $where : 'Our premises',
                 'Payment terms' => sprintf('%d days from delivery', $terms),
-                'Payment due by' => date('j F Y', strtotime('+' . $terms . ' days')),
+                'Payment due by' => \human_date(date('Y-m-d', strtotime('+' . $terms . ' days'))),
             ],
             'closing' => [
-                sprintf('You may now invoice us for this delivery. Please quote %s on the invoice so that it is matched and paid without delay.', $code),
+                sprintf('You may now invoice us for this delivery. Please quote %s on the invoice so that it is matched and paid without delay.', $order),
                 'If anything in the table above does not agree with your delivery note, reply to this message and we will check it against the goods before the invoice is processed.',
                 'Thank you for supplying us.',
             ],
@@ -1064,7 +1074,7 @@ final class Workflow
         Posting::tryPost('invoice', (int) $invoice['id']);
 
         $total = Currency::format((float) $invoice['total_amount'], (string) ($invoice['currency'] ?? '') ?: Currency::base());
-        Notifier::toRole('finance', 'Invoice issued', sprintf('%s for %s is issued and due on %s.', $code, $total, $invoice['due_date']), 'invoices', 'info', 'invoices', $code);
+        Notifier::toRole('finance', 'Invoice issued', sprintf('%s for %s is issued and due on %s.', $code, $total, \human_date($invoice['due_date'])), 'invoices', 'info', 'invoices', $code);
 
         $emailed = self::emailInvoice($db, $invoice, $code);
 
@@ -1078,12 +1088,12 @@ final class Workflow
      * is the one on the customer record; when it is missing the message says so,
      * rather than the issue quietly succeeding and the money never arriving.
      */
-    /** The ways to pay, as the company set them up, for the bottom of an invoice. */
-    private static function paymentFacts(): array
+    /** The ways to pay in the invoice's currency, for the bottom of an invoice. */
+    private static function paymentFacts(string $currency): array
     {
         $facts = [];
 
-        foreach (PaymentMethod::invoiceInstructions() as $method) {
+        foreach (PaymentMethod::invoiceInstructions($currency) as $method) {
             $facts['Pay by ' . $method['name']] = $method['details'] !== '' ? $method['details'] : 'Ask us for the details';
         }
 
@@ -1096,7 +1106,7 @@ final class Workflow
             return ' It is not addressed to a customer, so nothing was emailed.';
         }
 
-        $customer = $db->prepare('SELECT customer_name, contact_name, email FROM customers WHERE id = ? AND deleted_at IS NULL');
+        $customer = $db->prepare('SELECT customer_name, contact_name, email, tin_number FROM customers WHERE id = ? AND deleted_at IS NULL');
         $customer->execute([(int) $invoice['customer_id']]);
         $row = $customer->fetch();
 
@@ -1121,6 +1131,7 @@ final class Workflow
             ];
         }
 
+        $pdf = Documents::invoice((int) $invoice['id']);
         $result = \Support\Mailer::send([
             'key' => 'invoice-issued-' . $invoice['id'],
             'category' => 'invoice',
@@ -1128,13 +1139,14 @@ final class Workflow
             'to_name' => trim((string) ($row['contact_name'] ?: $row['customer_name'])),
             'subject' => sprintf('Invoice %s from %s', $code, \company_name()),
             'heading' => 'Invoice ' . $code,
+            'preheader' => sprintf('Invoice %s for %s, due %s.', $code, $money((float) $invoice['total_amount']), \human_date($invoice['due_date'])),
             'lines' => [
                 sprintf('Dear %s,', $row['contact_name'] ?: $row['customer_name']),
                 sprintf(
-                    'Thank you for your business. Invoice %s is set out below, covering the work carried out for %s. It falls due on %s.',
+                    'Thank you for your business. Invoice %s is set out below and falls due on %s.%s',
                     $code,
-                    $row['customer_name'],
-                    (string) $invoice['due_date']
+                    \human_date($invoice['due_date']),
+                    $pdf !== null ? ' The invoice is attached as a PDF for your records.' : ''
                 ),
             ],
             'items' => [
@@ -1152,17 +1164,20 @@ final class Workflow
                 [
                     'Invoice number' => $code,
                     'Your order (LPO)' => (string) ($invoice['lpo_number'] ?? ''),
-                    'Invoice date' => (string) ($invoice['issue_date'] ?: date('Y-m-d')),
-                    'Payment due by' => (string) $invoice['due_date'],
+                    'Invoice date' => \human_date($invoice['issue_date'] ?: date('Y-m-d')),
+                    'Payment due by' => \human_date($invoice['due_date']),
+                    'Your TIN' => (string) ($row['tin_number'] ?? ''),
+                    'Our TIN' => trim(Settings::get('company_tin', '')),
                 ],
                 // A bill that does not say where to send the money is a bill
                 // somebody has to ring up about.
-                self::paymentFacts()
+                self::paymentFacts($currency)
             ),
             'closing' => [
                 'Please quote the invoice number when you pay so we can match it against your account.',
                 'If anything on this invoice looks wrong, reply to this message and we will look into it.',
             ],
+            'attachments' => $pdf !== null ? [$pdf] : [],
             'entity_type' => 'invoices',
             'entity_id' => $code,
         ]);

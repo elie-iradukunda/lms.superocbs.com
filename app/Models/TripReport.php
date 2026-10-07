@@ -510,6 +510,29 @@ final class TripReport
      *
      * @return int how many people it was sent to
      */
+    /** "Yes" or "2 h 15 min late", against the planned arrival and the grace the company allows. */
+    private static function punctuality(array $trip): string
+    {
+        if (empty($trip['arrival_at']) || empty($trip['planned_arrival_at'])) {
+            return '';
+        }
+        $late = (int) round((strtotime((string) $trip['arrival_at']) - strtotime((string) $trip['planned_arrival_at'])) / 60);
+        if ($late <= Settings::int('on_time_grace_minutes', 30)) {
+            return $late < 0 ? sprintf('Yes, %s early', self::span(-$late)) : 'Yes';
+        }
+
+        return 'No, ' . self::span($late) . ' late';
+    }
+
+    private static function span(int $minutes): string
+    {
+        $days = intdiv($minutes, 1440);
+        $hours = intdiv($minutes % 1440, 60);
+        $mins = $minutes % 60;
+
+        return trim(($days > 0 ? $days . ' d ' : '') . ($hours > 0 ? $hours . ' h ' : '') . ($days === 0 && $mins > 0 ? $mins . ' min' : ''));
+    }
+
     public static function sendToOffice(int $tripId, string $moment = 'dispatched'): int
     {
         // Prices go to those who deal with them; the fleet manager gets the
@@ -536,7 +559,7 @@ final class TripReport
                 'to' => (string) $person['email'],
                 'to_name' => (string) $person['full_name'],
                 'user_id' => (int) $person['id'],
-                'subject' => sprintf('Trip report %s — %s to %s (%s)', $trip['reference_code'], $trip['pickup_location'], $trip['destination'], $moment),
+                'subject' => sprintf('Trip %s %s — %s to %s', $trip['reference_code'], $moment, $trip['pickup_location'], $trip['destination']),
                 'heading' => ($moment === 'completed' ? 'Trip completed: ' : 'Trip dispatched: ') . $trip['reference_code'],
                 'lines' => [
                     sprintf('Dear %s,', $person['full_name']),
@@ -549,7 +572,13 @@ final class TripReport
                 'facts' => array_filter([
                     'Loads' => (string) $data['totals']['loads'],
                     'Weight on board' => number_format((float) $data['totals']['weight']) . ' kg' . ((float) $trip['capacity_kg'] > 0 ? ' of ' . number_format((float) $trip['capacity_kg']) . ' kg' : ''),
-                    'Expected at destination' => $trip['planned_arrival_at'] ? date('j M Y, H:i', (int) strtotime((string) $trip['planned_arrival_at'])) : '',
+                    // Once it is over, what happened, not what was planned.
+                    'Expected at destination' => $moment !== 'completed' && $trip['planned_arrival_at'] ? \human_date((string) $trip['planned_arrival_at'], true) : '',
+                    'Arrived' => $moment === 'completed' && !empty($trip['arrival_at']) ? \human_date((string) $trip['arrival_at'], true) : '',
+                    'Planned arrival' => $moment === 'completed' && $trip['planned_arrival_at'] ? \human_date((string) $trip['planned_arrival_at'], true) : '',
+                    'On time' => $moment === 'completed' ? self::punctuality($trip) : '',
+                    'Distance' => $moment === 'completed' && !empty($trip['end_mileage']) && $trip['start_mileage'] !== null
+                        ? number_format(max(0, (int) $trip['end_mileage'] - (int) $trip['start_mileage'])) . ' km' : '',
                 ]),
                 'action' => ['label' => 'Open the trip', 'path' => 'trips/' . $tripId],
                 'attachments' => $files,

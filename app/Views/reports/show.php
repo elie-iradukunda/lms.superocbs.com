@@ -1,6 +1,7 @@
 <?php require __DIR__ . '/../layouts/header.php'; ?>
 <?php
-$format = static function (mixed $value, array $spec): string {
+$base = \Models\Currency::base();
+$format = static function (mixed $value, array $spec, array $row = []) use ($base): string {
     if ($value === null || $value === '') {
         return '<span class="text-muted">—</span>';
     }
@@ -9,7 +10,8 @@ $format = static function (mixed $value, array $spec): string {
         'code' => '<strong>' . e($value) . '</strong>',
         'badge' => '<span class="badge badge-' . e(\Models\Schema::tone((string) $value)) . '">' . e(\Models\Schema::label((string) $value)) . '</span>',
         'label' => e(\Models\Schema::label((string) $value)),
-        'money' => '<span class="lms-num">' . e(money((float) $value)) . '</span>',
+        // Each amount in its own currency: a USD row never reads "RWF".
+        'money' => '<span class="lms-num">' . e(\Models\Currency::format((float) $value, (string) (($row['currency'] ?? '') ?: $base))) . '</span>',
         'number' => '<span class="lms-num">' . e(number_format((float) $value)) . '</span>',
         'decimal' => '<span class="lms-num">' . e(rtrim(rtrim(number_format((float) $value, 2, '.', ','), '0'), '.')) . '</span>',
         'percent' => '<span class="lms-num lms-pct" data-value="' . e($value) . '">' . e($value) . '%</span>',
@@ -26,7 +28,10 @@ $format = static function (mixed $value, array $spec): string {
       <h2 class="lms-page-title"><i class="fe fe-bar-chart-2 mr-2"></i><?= e($report['label']) ?></h2>
     </div>
     <div class="lms-page-actions">
-      <a class="btn btn-outline-secondary" href="<?= url(['reports', 'export', $report['key']], ['from' => $report['from'], 'to' => $report['to']]) ?>"><i class="fe fe-download fe-12 mr-1"></i>Export CSV</a>
+      <?php $keep = ($report['currency'] ?? '') !== '' ? ['currency' => $report['currency']] : []; $exportQuery = ['from' => $report['from'], 'to' => $report['to']] + $keep; ?>
+      <a class="btn btn-outline-secondary" href="<?= e(url(['reports', 'export', $report['key']], $exportQuery + ['format' => 'pdf'])) ?>"><i class="fe fe-file-text fe-12 mr-1"></i>PDF</a>
+      <a class="btn btn-outline-secondary" href="<?= e(url(['reports', 'export', $report['key']], $exportQuery + ['format' => 'xlsx'])) ?>"><i class="fe fe-grid fe-12 mr-1"></i>Excel</a>
+      <a class="btn btn-outline-secondary" href="<?= e(url(['reports', 'export', $report['key']], $exportQuery)) ?>"><i class="fe fe-download fe-12 mr-1"></i>CSV</a>
     </div>
   </div>
 
@@ -49,9 +54,20 @@ $format = static function (mixed $value, array $spec): string {
             <?php endforeach; ?>
           </select>
         </div>
+        <?php if (($report['currencies'] ?? []) !== []): ?>
+          <div class="form-group mb-0 mr-2">
+            <label class="small text-muted mb-1 d-block" for="currency">Currency</label>
+            <select id="currency" name="currency" class="form-control">
+              <option value="">Every currency</option>
+              <?php foreach ($report['currencies'] as $code): ?>
+                <option value="<?= e($code) ?>" <?= $code === ($report['currency'] ?? '') ? 'selected' : '' ?>><?= e($code) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+        <?php endif; ?>
         <button class="btn btn-primary align-self-end" type="submit">Run</button>
         <?php foreach ([['This month', date('Y-m-01'), date('Y-m-t')], ['Last 3 months', date('Y-m-01', strtotime('-2 months')), date('Y-m-d')], ['This year', date('Y-01-01'), date('Y-m-d')]] as [$label, $f, $t]): ?>
-          <a class="btn btn-link btn-sm align-self-end" href="<?= url(['reports', 'view', $report['key']], ['from' => $f, 'to' => $t]) ?>"><?= e($label) ?></a>
+          <a class="btn btn-link btn-sm align-self-end" href="<?= e(url(['reports', 'view', $report['key']], ['from' => $f, 'to' => $t] + $keep)) ?>"><?= e($label) ?></a>
         <?php endforeach; ?>
       </form>
 
@@ -62,7 +78,7 @@ $format = static function (mixed $value, array $spec): string {
               <span class="lms-highlight-icon"><i class="fe fe-hash fe-16"></i></span>
               <div>
                 <small><?= e(ucfirst(str_replace('_', ' ', (string) $label))) ?></small>
-                <strong><?= e(is_float($value) || str_contains((string) $label, 'cost') || str_contains((string) $label, 'revenue') || str_contains((string) $label, 'margin') || str_contains((string) $label, 'total') || str_contains((string) $label, 'approved') ? money((float) $value) : number_format((float) $value)) ?></strong>
+                <strong><?= e(rtrim(rtrim(number_format((float) $value, 2), '0'), '.')) ?></strong>
               </div>
             </div>
           <?php endforeach; ?>
@@ -94,11 +110,27 @@ $format = static function (mixed $value, array $spec): string {
             <?php foreach ($report['rows'] as $row): ?>
               <tr>
                 <?php foreach ($report['columns'] as $column => $spec): ?>
-                  <td class="<?= in_array($spec['type'], ['money', 'number', 'decimal', 'percent'], true) ? 'text-right' : '' ?>"><?= $format($row[$column] ?? null, $spec) ?></td>
+                  <td class="<?= in_array($spec['type'], ['money', 'number', 'decimal', 'percent'], true) ? 'text-right' : '' ?>"><?= $format($row[$column] ?? null, $spec, $row) ?></td>
                 <?php endforeach; ?>
               </tr>
             <?php endforeach; ?>
           </tbody>
+          <?php if (($report['money_totals'] ?? []) !== []): ?>
+            <tfoot class="lms-report-totals">
+              <?php foreach ($report['money_totals'] as $code => $sums): ?>
+                <tr>
+                  <?php $first = true; foreach ($report['columns'] as $column => $spec): ?>
+                    <td class="<?= $spec['type'] === 'money' ? 'text-right' : '' ?>">
+                      <?php if ($first): ?><strong>Total <?= e($code) ?></strong>
+                      <?php elseif ($column === 'currency'): ?><strong><?= e($code) ?></strong>
+                      <?php elseif (array_key_exists($column, $sums)): ?><strong class="lms-num"><?= e(\Models\Currency::format((float) $sums[$column], (string) $code)) ?></strong>
+                      <?php endif; ?>
+                    </td>
+                  <?php $first = false; endforeach; ?>
+                </tr>
+              <?php endforeach; ?>
+            </tfoot>
+          <?php endif; ?>
         </table>
       </div>
 

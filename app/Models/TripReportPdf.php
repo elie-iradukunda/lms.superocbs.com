@@ -81,6 +81,9 @@ final class TripReportPdf
         }
 
         // ---------------------------------------------------- truck and driver
+        // Two columns drawn side by side cannot break across a page, so the
+        // whole block starts on a page with room for it.
+        $this->ensure(150);
         $this->section('Truck and driver');
         $half = ($width - 16) / 2;
         $top = $this->y;
@@ -89,14 +92,15 @@ final class TripReportPdf
             'Type' => trim($t['vehicle_type'] . ' · ' . trim($t['make'] . ' ' . $t['model']), ' ·'),
             'Carries' => (float) $t['capacity_kg'] > 0 ? number_format((float) $t['capacity_kg']) . ' kg' . ((float) $t['capacity_m3'] > 0 ? ' · ' . self::num((float) $t['capacity_m3']) . ' m³' : '') : '',
             'Cooling unit' => $t['plate_number'] ? ((int) $t['has_cooling_unit'] === 1 ? 'Yes' : 'No') : '',
-            'Mileage at start' => $t['mileage'] !== null ? number_format((int) $t['mileage']) . ' km' : '',
+            // The clock when the trip left, not what the truck reads today.
+            'Mileage at start' => ($t['start_mileage'] ?? $t['mileage']) !== null ? number_format((int) ($t['start_mileage'] ?? $t['mileage'])) . ' km' : '',
             'Ownership' => $t['ownership'] ? Schema::label((string) $t['ownership']) : '',
         ], $top);
         $rightEnd = $this->pairsAt(self::L + $half + 16, $half, [
             'Driver' => $t['driver_name'],
             'Phone' => $t['driver_phone'],
             'Licence' => trim(($t['license_number'] ?? '') . ($t['license_class'] ? ' (class ' . $t['license_class'] . ')' : '')),
-            'Licence expires' => $t['license_expiry'],
+            'Licence expires' => human_date($t['license_expiry']),
             'Emergency contact' => trim(($t['emergency_contact'] ?? '') . ' ' . ($t['emergency_phone'] ?? '')),
         ], $top);
         $this->y = max($leftEnd, $rightEnd) + 6;
@@ -158,7 +162,7 @@ final class TripReportPdf
         } else {
             $rows = [];
             foreach ($d['papers'] as $p) {
-                $rows[] = [$p['kind'], (string) $p['type'], (string) ($p['number'] ?: '—'), (string) ($p['issued'] ?: '—'), (string) ($p['expires'] ?: 'No expiry'), Schema::label((string) $p['status']), $p['scan'] ? 'Yes' : 'No'];
+                $rows[] = [$p['kind'], (string) $p['type'], (string) ($p['number'] ?: '—'), ($p['issued'] ? human_date((string) $p['issued']) : '—'), ($p['expires'] ? human_date((string) $p['expires']) : 'No expiry'), Schema::label((string) $p['status']), $p['scan'] ? 'Yes' : 'No'];
             }
             $this->table([['For', 52], ['Paper', 110], ['Number', 115], ['Issued', 62], ['Expires', 64], ['Status', 70], ['Scan', 50]], $rows);
         }

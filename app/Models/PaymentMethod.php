@@ -137,12 +137,17 @@ final class PaymentMethod
      *
      * @return list<array{name: string, details: string}>
      */
-    public static function invoiceInstructions(): array
+    public static function invoiceInstructions(?string $currency = null): array
     {
         $shown = [];
 
         foreach (self::all() as $row) {
             if ((int) $row['is_active'] !== 1 || (int) $row['show_on_invoice'] !== 1) {
+                continue;
+            }
+            // A USD invoice lists only accounts that take USD, or any currency.
+            $accepts = strtoupper(trim((string) ($row['currency'] ?? '')));
+            if ($currency !== null && $accepts !== '' && $accepts !== strtoupper($currency)) {
                 continue;
             }
             if (!in_array((string) $row['direction'], ['in', 'both'], true)) {

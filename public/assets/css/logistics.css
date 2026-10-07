@@ -177,3 +177,19 @@ body.dark .lms-section-nav a{color:#ced4da}
 body.dark .lms-section-nav a:hover{background:#343a40;color:#fff}
 body.dark .lms-section-nav a.is-active{background:#ad7d00;color:#fff}
 @media print{.lms-section-nav{display:none}}
+/* An update opened in its own window */
+.lms-update-modal .modal-content{border:0;border-radius:10px;box-shadow:0 18px 50px rgba(18,38,63,.25)}
+.lms-update-modal .modal-header{align-items:flex-start;border-bottom:1px solid #eef1f4;padding:16px 20px}
+.lms-update-head{display:grid;gap:4px}.lms-update-head .modal-title{font-size:18px;font-weight:700;color:#212529;line-height:1.3}
+.lms-update-kind{justify-self:start;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:10px;background:#fdf1e2;color:#a96207}
+.lms-update-kind.lms-update-danger{background:#fbe3e5;color:#b42332}.lms-update-kind.lms-update-warning{background:#fdf1d8;color:#9a6700}.lms-update-kind.lms-update-success{background:#e1f4e6;color:#1e7a3c}
+.lms-update-message{font-size:15px;line-height:1.6;color:#343a40;white-space:pre-line;margin:0 0 16px}
+.lms-update-facts{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:0;font-size:13px;padding-top:12px;border-top:1px solid #eef1f4}
+.lms-update-facts dt{font-weight:600;color:#6c757d}.lms-update-facts dd{margin:0;color:#343a40}
+.lms-update-modal .modal-footer{border-top:1px solid #eef1f4;padding:12px 20px}
+.lms-notify-item{cursor:pointer}
+body.dark .lms-update-modal .modal-content{background:#343a40}body.dark .lms-update-modal .modal-header,body.dark .lms-update-modal .modal-footer,body.dark .lms-update-facts{border-color:#495057}
+body.dark .lms-update-head .modal-title,body.dark .lms-update-message,body.dark .lms-update-facts dd{color:#f2f3f6}body.dark .lms-update-facts dt{color:#adb5bd}body.dark .lms-update-modal .close{color:#f2f3f6}
+/* Report totals, one line per currency */
+.lms-report-totals td{border-top:2px solid #343a40;background:#fafbfc}.lms-report-totals tr+tr td{border-top:1px solid #e3e8ec}
+body.dark .lms-report-totals td{background:#2b3035;border-color:#adb5bd}

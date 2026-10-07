@@ -350,6 +350,94 @@ $(function () {
   });
 })();
 </script>
+<div class="modal fade lms-update-modal" id="updateModal" tabindex="-1" role="dialog" aria-labelledby="updateTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="lms-update-head">
+          <span class="lms-update-kind" id="updateKind"></span>
+          <h5 class="modal-title" id="updateTitle"></h5>
+        </div>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <p class="lms-update-message" id="updateMessage"></p>
+        <dl class="lms-update-facts">
+          <dt>When</dt><dd id="updateWhen"></dd>
+          <dt class="lms-update-ref">Reference</dt><dd class="lms-update-ref" id="updateRef"></dd>
+          <dt class="lms-update-area">Area</dt><dd class="lms-update-area" id="updateArea"></dd>
+          <dt>Status</dt><dd id="updateStatus"></dd>
+        </dl>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Close</button>
+        <a class="btn btn-primary" id="updateOpen" href="#"><i class="fe fe-external-link fe-12 mr-1"></i><span>Open</span></a>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+// An update opens in a window with everything it says, and is read as it opens.
+(function () {
+  var menu = document.querySelector('.lms-notify-menu');
+  if (!menu || !window.jQuery) { return; }
+  var kinds = { danger: 'Needs attention', warning: 'Warning', success: 'Done', primary: 'Update' };
+  function set(id, text) { document.getElementById(id).textContent = text; }
+
+  function markRead(item) {
+    if (!item.classList.contains('is-unread')) { return; }
+    item.classList.remove('is-unread');
+    var tick = item.parentNode.querySelector('.lms-notify-tick');
+    if (tick) { tick.remove(); }
+    var body = new FormData();
+    body.append('_token', menu.getAttribute('data-token'));
+    body.append('notification_key', item.getAttribute('data-key'));
+    fetch(menu.getAttribute('data-read-url'), { method: 'POST', body: body, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) { return; }
+        var badge = document.querySelector('.lms-bell-badge');
+        var clear = menu.querySelector('.lms-notify-clear');
+        if (data.unread > 0) {
+          if (badge) { badge.textContent = data.unread > 9 ? '9+' : String(data.unread); }
+          if (clear) { clear.textContent = data.unread + ' new · mark all read'; }
+        } else {
+          if (badge) { badge.remove(); }
+          if (clear) { clear.closest('form').remove(); }
+        }
+      })
+      .catch(function () {});
+  }
+
+  menu.addEventListener('click', function (e) {
+    var item = e.target.closest('.lms-notify-item');
+    if (!item) { return; }
+    e.preventDefault();
+    var severity = item.getAttribute('data-severity') || 'primary';
+    var wasUnread = item.classList.contains('is-unread');
+    var kind = document.getElementById('updateKind');
+    kind.textContent = kinds[severity] || kinds.primary;
+    kind.className = 'lms-update-kind lms-update-' + severity;
+    set('updateTitle', item.getAttribute('data-title'));
+    set('updateMessage', item.getAttribute('data-message'));
+    set('updateWhen', [item.getAttribute('data-when'), item.getAttribute('data-ago')].filter(Boolean).join(' · '));
+    set('updateStatus', wasUnread ? 'New, now marked as read' : 'Read');
+    var ref = item.getAttribute('data-ref');
+    var area = item.getAttribute('data-area');
+    set('updateRef', ref); set('updateArea', area);
+    document.querySelectorAll('#updateModal .lms-update-ref').forEach(function (n) { n.hidden = !ref; });
+    document.querySelectorAll('#updateModal .lms-update-area').forEach(function (n) { n.hidden = !area; });
+    var open = document.getElementById('updateOpen');
+    var url = item.getAttribute('data-open');
+    open.hidden = !url;
+    open.href = url || '#';
+    open.querySelector('span').textContent = ref ? 'Open ' + ref : (area ? 'Open ' + area : 'Open');
+    jQuery(menu).closest('.dropdown').find('[data-toggle="dropdown"]').dropdown('hide');
+    jQuery('#updateModal').modal('show');
+    markRead(item);
+  });
+})();
+</script>
 <?php require __DIR__ . '/pwa.php'; ?>
 </body>
 </html>

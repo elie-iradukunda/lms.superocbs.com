@@ -30,6 +30,21 @@ final class XlsxWriter
 {
     public static function send(array $doc): never
     {
+        $bytes = self::build($doc);
+        if (!headers_sent()) {
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment; filename="' . Report::filename($doc, 'xlsx') . '"');
+            header('Content-Length: ' . (string) strlen($bytes));
+            header('Cache-Control: max-age=0');
+        }
+
+        echo $bytes;
+        exit;
+    }
+
+    /** The workbook as bytes: for a download, or to attach to an email. */
+    public static function build(array $doc): string
+    {
         $temp = tempnam(sys_get_temp_dir(), 'lmsx');
         $zip = new ZipArchive();
 
@@ -39,26 +54,19 @@ final class XlsxWriter
 
         $zip->addFromString('[Content_Types].xml', self::contentTypes());
         $zip->addFromString('_rels/.rels', self::rootRels());
-        $zip->addFromString('xl/workbook.xml', self::workbook());
         $zip->addFromString('xl/_rels/workbook.xml.rels', self::workbookRels());
         $zip->addFromString('xl/styles.xml', self::styles());
 
         $drawing = self::addLogo($zip, $doc);
 
         $zip->addFromString('xl/worksheets/sheet1.xml', self::sheet($doc, $drawing));
+        $zip->addFromString('xl/workbook.xml', self::workbook(self::$headerRow));
         $zip->close();
 
-        $name = Report::filename($doc, 'xlsx');
-        if (!headers_sent()) {
-            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            header('Content-Disposition: attachment; filename="' . $name . '"');
-            header('Content-Length: ' . (string) filesize($temp));
-            header('Cache-Control: max-age=0');
-        }
-
-        readfile($temp);
+        $bytes = (string) file_get_contents($temp);
         @unlink($temp);
-        exit;
+
+        return $bytes;
     }
 
     // -------------------------------------------------------------- helpers
@@ -151,12 +159,18 @@ final class XlsxWriter
             . '</Relationships>';
     }
 
-    private static function workbook(): string
+    /** The row the column headings sit on, set while the sheet is drawn. */
+    private static int $headerRow = 1;
+
+    /** The column headings repeat at the top of every printed page. */
+    private static function workbook(int $headerRow): string
     {
         return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
             . ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-            . '<sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>';
+            . '<sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets>'
+            . '<definedNames><definedName name="_xlnm.Print_Titles" localSheetId="0">Report!$' . $headerRow . ':$' . $headerRow . '</definedName></definedNames>'
+            . '</workbook>';
     }
 
     private static function workbookRels(): string
@@ -207,7 +221,7 @@ final class XlsxWriter
         $x .= '</borders>';
 
         $x .= '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>';
-        $x .= '<cellXfs count="17">';
+        $x .= '<cellXfs count="19">';
         $x .= '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyFont="1"/>';
         $x .= '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>';
         $x .= '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center"/></xf>';
@@ -225,6 +239,9 @@ final class XlsxWriter
         $x .= '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>';
         $x .= '<xf numFmtId="164" fontId="4" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>';
         $x .= '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left"/></xf>';
+        // 17 and 18: whole numbers, plain and bold, for counts.
+        $x .= '<xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>';
+        $x .= '<xf numFmtId="3" fontId="4" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>';
         $x .= '</cellXfs>';
         $x .= '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>';
         $x .= '</styleSheet>';
@@ -275,6 +292,7 @@ final class XlsxWriter
 
         $r++;
         $headerRow = $r;
+        self::$headerRow = $headerRow;
         $body .= '<row r="' . $r . '" ht="16" customHeight="1">';
         foreach ($doc['columns'] as $i => $column) {
             $body .= '<c r="' . self::column($i) . $r . '" s="4" t="inlineStr"><is><t>';
@@ -301,6 +319,7 @@ final class XlsxWriter
 
                 if (is_int($value) || is_float($value)) {
                     $style = match (true) {
+                        !empty($column['count']) => $bold ? 18 : 17,
                         $row['type'] === 'grand' => 10,
                         $row['type'] === 'total' => 8,
                         $row['type'] === 'section' => 15,
@@ -338,9 +357,10 @@ final class XlsxWriter
         $x .= '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
         $x .= ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">';
         $x .= '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>';
+        // No frozen pane: some Excel versions opened it as a split window that
+        // showed the whole header block twice. The headings repeat when printed.
         $x .= '<sheetViews><sheetView workbookViewId="0" showGridLines="0">';
-        $x .= '<pane ySplit="' . $headerRow . '" topLeftCell="A' . ($headerRow + 1) . '"';
-        $x .= ' activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>';
+        $x .= '<selection activeCell="A' . ($headerRow + 1) . '" sqref="A' . ($headerRow + 1) . '"/></sheetView></sheetViews>';
         $x .= '<sheetFormatPr defaultRowHeight="14.5"/>';
         $x .= $cols;
         $x .= '<sheetData>' . $body . '</sheetData>';

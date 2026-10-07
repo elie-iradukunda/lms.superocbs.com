@@ -10,3 +10,7 @@ storage/uploads/
 
 # Full production settings, secrets included.
 .env.production
+
+# Upload packages and database dumps made for the live server (database/ stays tracked).
+/*.sql
+/*.zip

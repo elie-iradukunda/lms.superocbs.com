@@ -69,6 +69,14 @@ final class LogisticsController
         if ($oneTime !== null) {
             $address = trim((string) ($input['email'] ?? ''));
             $name = trim((string) ($input['full_name'] ?? $address));
+            // What they will be doing in it, so the account makes sense on arrival.
+            $role = '';
+            try {
+                $lookup = \Core\Database::connection()->prepare('SELECT r.role_name FROM users u INNER JOIN roles r ON r.id = u.role_id WHERE u.id = ?');
+                $lookup->execute([$id]);
+                $role = (string) ($lookup->fetchColumn() ?: '');
+            } catch (\Throwable) {
+            }
 
             $result = \Support\Mailer::send([
                 'key' => 'welcome-' . $id,
@@ -76,14 +84,15 @@ final class LogisticsController
                 'to' => $address,
                 'to_name' => $name,
                 'user_id' => $id,
-                'subject' => 'Your LMS account is ready',
+                'subject' => sprintf('Your %s LMS account is ready', \company_name()),
                 'heading' => 'Welcome to ' . \company_name(),
+                'preheader' => 'Your account is ready. Sign in with the one-time password inside.',
                 'lines' => [
                     sprintf('Hello %s,', $name),
-                    'An account has been created for you on the LMS logistics system. Sign in with the details below.',
+                    sprintf('An account has been created for you on the %s logistics system%s. Sign in with the details below.', \company_name(), $role !== '' ? ' as ' . $role : ''),
                     'You will be asked to choose your own password the first time you sign in, and this one stops working straight away.',
                 ],
-                'facts' => ['Sign in with' => $address, 'One-time password' => $oneTime],
+                'facts' => array_filter(['Sign in with' => $address, 'One-time password' => $oneTime, 'Your role' => $role, 'Job title' => trim((string) ($input['job_title'] ?? ''))]),
                 'action' => ['label' => 'Sign in to LMS', 'url' => \Support\Mailer::link('')],
                 'entity_type' => 'users',
                 'entity_id' => (string) $id,

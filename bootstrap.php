@@ -288,6 +288,17 @@ function vendor_name(): string
     return 'ITEC LTD';
 }
 
+/** One way to write a date in letters and emails: "7 Oct 2026", or "7 Oct 2026, 09:09" with the time. */
+function human_date(?string $value, bool $withTime = false): string
+{
+    $stamp = $value !== null && trim($value) !== '' ? strtotime($value) : false;
+    if ($stamp === false) {
+        return '';
+    }
+
+    return date($withTime ? 'j M Y, H:i' : 'j M Y', $stamp);
+}
+
 function time_ago(?string $datetime): string
 {
     $time = $datetime ? strtotime($datetime) : false;

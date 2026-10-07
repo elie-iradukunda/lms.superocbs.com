@@ -206,7 +206,7 @@ final class PriceOffer
 
         $company = \company_name();
         $name = trim((string) ($offer['contact_name'] ?: $offer['customer_name']));
-        $valid = date('j F Y', (int) strtotime((string) ($offer['valid_until'] ?: date('Y-m-d', strtotime('+30 days')))));
+        $valid = \human_date((string) ($offer['valid_until'] ?: date('Y-m-d', strtotime('+30 days'))));
         $terms = (int) ($offer['payment_terms_days'] ?: Settings::int('payment_terms_days', 30));
 
         $lines = [
@@ -224,6 +224,7 @@ final class PriceOffer
         if ($hasShared) {
             $closing[] = 'Shared truck prices are charged on the actual weight loaded, subject to the minimum charge shown.';
         }
+        $closing[] = sprintf('All prices exclude VAT (%s%%), which is added on the invoice.', rtrim(rtrim(number_format(Settings::float('tax_rate', 18), 2, '.', ''), '0'), '.'));
         $closing[] = sprintf('To proceed, simply reply to this email with the route, a description of the goods, their weight and the date you would like them collected, quoting reference %s. We will confirm the booking and the collection details.', $offer['offer_code']);
         $closing[] = 'We look forward to working with you.';
         $closing[] = 'Kind regards,';
@@ -240,6 +241,8 @@ final class PriceOffer
             'to_name' => $name,
             'subject' => sprintf('Transport rates for %s — offer %s', $offer['customer_name'], $offer['offer_code']),
             'heading' => 'Transport rate offer',
+            'preheader' => sprintf('Our transport rates for %s, valid until %s.', $offer['customer_name'], $valid),
+            'audience' => 'external',
             'lines' => $lines,
             'items' => [
                 'title' => 'Our rates',
@@ -249,7 +252,7 @@ final class PriceOffer
             ],
             'facts' => [
                 'Offer reference' => (string) $offer['offer_code'],
-                'Date' => date('j F Y'),
+                'Date' => \human_date(date('Y-m-d')),
                 'Prepared for' => (string) $offer['customer_name'],
                 'Valid until' => $valid,
                 'Payment terms' => sprintf('%d days from the date of invoice', $terms),
@@ -305,6 +308,8 @@ final class PriceOffer
             'to_name' => $name,
             'subject' => sprintf('LPO form to confirm your order — offer %s', $offer['offer_code']),
             'heading' => 'Local Purchase Order form',
+            'preheader' => sprintf('Please complete, sign and return the attached LPO form, quoting %s.', $offer['offer_code']),
+            'audience' => 'external',
             'body_html' => $body,
             'signature' => trim($company . '  ·  ' . \Support\Report::companyDetails(), ' ·'),
             'entity_type' => 'price_offers',
