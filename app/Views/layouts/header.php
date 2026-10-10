@@ -170,7 +170,7 @@ $searchIndex[] = ['label' => 'My profile', 'url' => url('account'), 'group' => '
   </nav>
   <aside class="sidebar-left border-right bg-white shadow" id="leftSidebar" data-simplebar>
     <nav class="vertnav navbar navbar-light">
-      <div class="w-100 mb-4 d-flex"><a class="navbar-brand mx-auto mt-2 flex-fill text-center" href="<?= url('dashboard') ?>"><img src="<?= $baseUrl ?>/assets/img/logistics-logo.svg" width="86%" alt="LMS"></a></div>
+      <div class="w-100 mb-3 d-flex"><a class="navbar-brand lms-brand flex-fill" href="<?= url('dashboard') ?>"><img class="lms-brand-full" src="<?= asset('assets/img/lms-logo-white.png') ?>" alt="LMS — Logistics Management System"><img class="lms-brand-mark" src="<?= asset('assets/img/lms-logo-mark.png') ?>" alt="LMS"></a></div>
       <ul class="navbar-nav flex-fill w-100 mb-2">
         <li class="nav-item w-100"><a class="nav-link<?= nav_active('dashboard') ?>" href="<?= url('dashboard') ?>"><i class="fe fe-home fe-16"></i><span class="ml-3 item-text">Dashboard</span></a></li>
         <?php if (current_role() === 'driver' && current_driver_id() !== null): ?>

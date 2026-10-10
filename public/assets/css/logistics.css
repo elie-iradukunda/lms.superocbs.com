@@ -18,6 +18,9 @@
 .vertical.collapsed .sidebar-left,.vertical.narrow .sidebar-left{min-width:5rem;width:5rem}
 .vertical.collapsed .topnav,.vertical.collapsed .main-content,.vertical.narrow .topnav,.vertical.narrow .main-content{margin-left:5rem}
 .vertical.narrow.hover .topnav,.vertical.narrow.hover .main-content{margin-left:5rem}
+/* Hovering a collapsed bar opens it to full width over the page; the page itself stays put */
+.vertical.collapsed.hover .sidebar-left,.vertical.narrow.hover .sidebar-left{min-width:13rem;width:13rem;z-index:1040;box-shadow:4px 0 18px rgba(18,38,63,.18)!important}
+.vertical.collapsed.hover .topnav,.vertical.collapsed.hover .main-content{margin-left:5rem}
 }
 @media(max-width:991.98px){.vertical.collapsed .sidebar-left,.vertical.narrow.open .sidebar-left{min-width:13rem;width:13rem}}
 .sidebar-left .vertnav{padding-left:.75rem;padding-right:.75rem}.sidebar-left .navbar-nav .nav-link{font-size:.82rem;padding-top:.5rem;padding-bottom:.5rem}.sidebar-left .navbar-nav .item-text{margin-left:.6rem!important}.sidebar-left .navbar-nav ul .nav-link{padding-left:.5rem}
@@ -193,3 +196,10 @@ body.dark .lms-update-head .modal-title,body.dark .lms-update-message,body.dark 
 /* Report totals, one line per currency */
 .lms-report-totals td{border-top:2px solid #343a40;background:#fafbfc}.lms-report-totals tr+tr td{border-top:1px solid #e3e8ec}
 body.dark .lms-report-totals td{background:#2b3035;border-color:#adb5bd}
+/* Sidebar logo: white lettering, so it sits on a dark strip; the cube alone when the bar is collapsed */
+.sidebar-left .navbar-brand.lms-brand{display:flex;align-items:center;justify-content:center;margin:0 -.75rem;padding:1.1rem 1rem;background:#16222e;border-bottom:3px solid #ad7d00;box-sizing:border-box}
+.sidebar-left .lms-brand img.lms-brand-full{display:block;width:100%;max-width:10.5rem;height:auto}
+.sidebar-left .lms-brand img.lms-brand-mark{display:none;width:2.2rem;height:auto}
+.vertical.collapsed:not(.hover) .sidebar-left .lms-brand img.lms-brand-full,.vertical.narrow:not(.open) .sidebar-left .lms-brand img.lms-brand-full{display:none}
+.vertical.collapsed:not(.hover) .sidebar-left .lms-brand img.lms-brand-mark,.vertical.narrow:not(.open) .sidebar-left .lms-brand img.lms-brand-mark{display:block}
+body.dark .sidebar-left .navbar-brand.lms-brand{background:#0f171f}
