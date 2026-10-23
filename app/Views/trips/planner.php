@@ -110,7 +110,7 @@ $option = static function (array $record, string $label, string $current, array 
 
     <div class="lms-form-bar">
       <button type="button" class="btn btn-outline-primary" id="lms-check"><i class="fe fe-check-circle fe-12 mr-1"></i>Check the plan</button>
-      <button type="submit" class="btn btn-primary"><i class="fe fe-send fe-12 mr-1"></i>Create trips and send F1</button>
+      <button type="submit" class="btn btn-primary"><i class="fe fe-send fe-12 mr-1"></i>Create trip &amp; send money request</button>
     </div>
   </form>
 </div>
