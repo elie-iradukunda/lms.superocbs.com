@@ -165,9 +165,10 @@ final class Fleet
                 $problems[] = sprintf('%s: %s is missing.', $label, $name);
                 continue;
             }
-            if (empty($paper['document_file'])) {
-                $problems[] = sprintf('%s: %s has no scan uploaded.', $label, $name);
-            }
+            // A document on file with a number and an in-date expiry satisfies
+            // "must be in date to go on a trip". Whether its scan is attached is
+            // a records matter, chased on the document page, not a reason to hold
+            // the truck at the gate.
             $expires = (string) ($paper['expires_on'] ?? '');
             if ($expires === '') {
                 continue;
