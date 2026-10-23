@@ -470,8 +470,10 @@ final class Schema
                 'fields' => [
                     'document_code' => ['label' => 'Reference', 'type' => 'text', 'required' => true, 'width' => 4, 'auto' => 'DOC'],
                     'owner_type' => ['label' => 'Document of', 'type' => 'select', 'required' => true, 'width' => 4, 'options' => ['vehicle' => 'A truck', 'trailer' => 'A trailer']],
-                    'vehicle_id' => ['label' => 'Truck', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'vehicles', 'label' => 'plate_number', 'where' => 'deleted_at IS NULL', 'empty' => 'Not a truck document']],
-                    'trailer_id' => ['label' => 'Trailer', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'trailers', 'label' => 'trailer_number', 'where' => 'deleted_at IS NULL', 'empty' => 'Not a trailer document']],
+                    // A document belongs to a truck or to a trailer, never both:
+                    // the form shows only the picker that matches the choice above.
+                    'vehicle_id' => ['label' => 'Truck', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'vehicles', 'label' => 'plate_number', 'where' => 'deleted_at IS NULL', 'empty' => 'Not a truck document'], 'show_when' => ['owner_type' => ['vehicle']]],
+                    'trailer_id' => ['label' => 'Trailer', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'trailers', 'label' => 'trailer_number', 'where' => 'deleted_at IS NULL', 'empty' => 'Not a trailer document'], 'show_when' => ['owner_type' => ['trailer']]],
                     'document_type' => ['label' => 'Document', 'type' => 'select', 'required' => true, 'width' => 4, 'options' => Fleet::documentTypeOptions('vehicle') + Fleet::documentTypeOptions('trailer')],
                     'document_number' => ['label' => 'Number', 'type' => 'text', 'required' => true, 'width' => 4],
                     'provider_name' => ['label' => 'Issuer / insurer', 'type' => 'text', 'width' => 4, 'placeholder' => 'SONARWA'],
