@@ -10,11 +10,10 @@ $statusLabel = ['open' => 'Open', 'scheduled' => 'Scheduled', 'in_progress' => '
     <div>
       <p class="lms-kicker">Garage · <?= e(current_company_name()) ?></p>
       <h2 class="lms-page-title"><i class="fe fe-tool mr-2"></i>Job cards</h2>
-      <p class="lms-page-sub">A job card opens when a service request (F3) is authorized or a sister company asks (F11). The store issues the parts on its issue note; the mechanic records the work and the odometer and closes it.</p>
     </div>
     <div class="lms-page-actions">
       <?php if (can_create('form_requests')): ?>
-        <a class="btn btn-primary" href="<?= url(['form_requests', 'create'], ['form' => 'F3']) ?>"><i class="fe fe-plus fe-12 mr-1"></i>Service request (F3)</a>
+        <a class="btn btn-primary" href="<?= url(['form_requests', 'create'], ['form' => 'F3']) ?>"><i class="fe fe-plus fe-12 mr-1"></i>New service request</a>
       <?php endif; ?>
       <?php if (can_view('tyre_logs')): ?><a class="btn btn-outline-secondary" href="<?= url('tyre_logs') ?>"><i class="fe fe-disc fe-12 mr-1"></i>Tyre log</a><?php endif; ?>
       <?php if (can_view('store_issues')): ?><a class="btn btn-outline-secondary" href="<?= url('store_issues') ?>"><i class="fe fe-package fe-12 mr-1"></i>Store</a><?php endif; ?>
