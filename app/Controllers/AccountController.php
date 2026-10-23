@@ -78,6 +78,13 @@ final class AccountController
         $_SESSION['logistics_user_name'] = $fullName;
         $_SESSION['logistics_user_avatar'] = $photo;
 
+        // Which updates also go to WhatsApp (section 19), and to which number.
+        if (($_POST['whatsapp_topics_sent'] ?? '') === '1') {
+            $topics = array_values(array_intersect((array) ($_POST['whatsapp_topics'] ?? []), array_keys(\Support\WhatsApp::TOPICS)));
+            \Core\Database::connection()->prepare('UPDATE users SET whatsapp_number = ?, whatsapp_topics = ? WHERE id = ?')
+                ->execute([trim((string) ($_POST['whatsapp_number'] ?? '')) ?: null, $topics === [] ? 'none' : implode(',', $topics), $userId]);
+        }
+
         AuditLog::record('account.profile_updated', 'users', (string) $userId);
         Flash::success('Your profile was updated.' . $photoNote);
 

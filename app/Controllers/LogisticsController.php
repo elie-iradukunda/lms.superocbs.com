@@ -69,6 +69,8 @@ final class LogisticsController
         if ($oneTime !== null) {
             $address = trim((string) ($input['email'] ?? ''));
             $name = trim((string) ($input['full_name'] ?? $address));
+            // A driver signs in with the phone number (section 6).
+            $signInWith = $key === 'drivers' ? trim((string) ($input['phone'] ?? '')) : $address;
             // What they will be doing in it, so the account makes sense on arrival.
             $role = '';
             try {
@@ -92,7 +94,7 @@ final class LogisticsController
                     sprintf('An account has been created for you on the %s logistics system%s. Sign in with the details below.', \company_name(), $role !== '' ? ' as ' . $role : ''),
                     'You will be asked to choose your own password the first time you sign in, and this one stops working straight away.',
                 ],
-                'facts' => array_filter(['Sign in with' => $address, 'One-time password' => $oneTime, 'Your role' => $role, 'Job title' => trim((string) ($input['job_title'] ?? ''))]),
+                'facts' => array_filter(['Sign in with' => $signInWith, 'One-time password' => $oneTime, 'Your role' => $role, 'Job title' => trim((string) ($input['job_title'] ?? ''))]),
                 'action' => ['label' => 'Sign in to LMS', 'url' => \Support\Mailer::link('')],
                 'entity_type' => 'users',
                 'entity_id' => (string) $id,
@@ -103,7 +105,7 @@ final class LogisticsController
             } else {
                 Flash::warning(sprintf(
                     'One-time password for %s: %s — the email could not be sent, so give it to them directly. They must change it at first sign-in, and it will not be shown again.',
-                    $address === '' ? 'the new account' : $address,
+                    $signInWith === '' ? 'the new account' : $signInWith,
                     $oneTime
                 ));
             }
@@ -265,7 +267,8 @@ final class LogisticsController
         $result = Workflow::apply($key, $id, $action, $reason);
         $result['ok'] ? Flash::success($result['message']) : Flash::error($result['message']);
 
-        $this->redirect(\url([$key, $id]));
+        // Signed from the approvals inbox: back to the inbox for the next one.
+        $this->redirect(($_POST['back'] ?? '') === 'approvals' ? \url('approvals') : \url([$key, $id]));
     }
 
     /** @return string|null what is wrong with what was typed, or null once it is saved */
@@ -520,8 +523,6 @@ final class LogisticsController
             'report_emails' => ['is_active' => 1, 'frequency' => 'weekly'],
             'supplier_bills' => ['status' => 'draft', 'bill_date' => $today, 'currency' => \Models\Currency::base(), 'tax_rate' => 0],
             'supplier_payments' => ['method' => 'bank_transfer', 'paid_at' => $now, 'recorded_by' => \current_user_id()],
-            'storage_lots' => ['received_at' => $now, 'unit' => 'Bags', 'free_days' => 7, 'charge_basis' => 'per_unit_day', 'daily_rate' => 0, 'currency' => \Models\Currency::base(), 'status' => 'in_store'],
-            'storage_releases' => ['released_at' => $now, 'authorised_by' => \current_user_id()],
             'containers' => ['picked_up_at' => $now, 'free_days' => 14, 'currency' => 'USD', 'container_size' => '20ft', 'status' => 'out_full'],
             'bank_statements' => ['status' => 'open', 'currency' => \Models\Currency::base(), 'period_from' => date('Y-m-01', strtotime('first day of last month')), 'period_to' => date('Y-m-t', strtotime('last day of last month')), 'opening_balance' => 0],
             'disbursements' => ['status' => 'pending', 'paid_at' => $today, 'method' => 'bank_transfer', 'currency' => \Models\Currency::base(), 'category' => 'Customs duty'],
@@ -542,22 +543,14 @@ final class LogisticsController
             }
         }
 
-        // "Keep in storage" / "Track container" from a shipment: the cargo, the
-        // customer and the box are already on file.
-        if (in_array($key, ['storage_lots', 'containers'], true) && ($_GET['shipment_id'] ?? '') !== '') {
+        // "Track container" from a shipment: the customer and the box are
+        // already on file.
+        if ($key === 'containers' && ($_GET['shipment_id'] ?? '') !== '') {
             $shipment = LogisticsData::find('shipments', (int) $_GET['shipment_id'], \current_context());
             if ($shipment !== null) {
                 $defaults['shipment_id'] = $shipment['id'];
                 $defaults['customer_id'] = $shipment['customer_id'];
-                if ($key === 'storage_lots') {
-                    $defaults += [
-                        'warehouse_id' => $shipment['destination_warehouse_id'] ?? null,
-                        'description' => $shipment['cargo_description'],
-                        'quantity_received' => $shipment['packages_count'],
-                        'weight_kg' => $shipment['weight_kg'],
-                        'volume_m3' => $shipment['volume_m3'] ?? null,
-                    ];
-                } else {
+                {
                     $defaults += [
                         'container_no' => $shipment['container_no'] ?? null,
                         'container_size' => $shipment['container_size'] ?? null,
@@ -568,21 +561,47 @@ final class LogisticsController
             }
         }
 
-        // "Release goods" from a lot: what is left is what normally goes.
-        if ($key === 'storage_releases' && ($_GET['lot_id'] ?? '') !== '') {
-            $lot = \Models\Storage::lot((int) $_GET['lot_id']);
-            if ($lot !== null) {
-                $defaults['lot_id'] = $lot['id'];
-                $defaults['quantity'] = \Models\Storage::onHand((int) $lot['id']);
-            }
-        }
-
         // "Raise transport request" on an accepted price offer: the customer and
         // the route agreed come with it.
         if ($key === 'requests' && ($_GET['price_offer_id'] ?? '') !== '') {
             $fromOffer = \Models\PriceOffer::requestDefaults((int) $_GET['price_offer_id']);
             if ($fromOffer !== null) {
                 $defaults = $fromOffer + $defaults;
+            }
+        }
+
+        // A freight job opened from a request carries the customer, the route and the cargo.
+        if ($key === 'freight_jobs') {
+            $defaults += ['direction' => 'import', 'mode' => 'sea', 'scope' => 'clearing_forwarding', 'load_type' => 'fcl', 'currency' => 'USD', 'notify_customer' => 1, 'port_of_discharge' => 'Mombasa'];
+            if (($_GET['request_id'] ?? '') !== '' && ($request = LogisticsData::find('requests', (int) $_GET['request_id'], \current_context())) !== null) {
+                $defaults = [
+                    'request_id' => $request['id'], 'customer_id' => $request['customer_id'], 'commodity' => $request['cargo_description'],
+                    'weight_kg' => $request['weight_kg'], 'packages' => $request['packages_count'], 'origin' => $request['pickup_location'],
+                    'final_destination' => $request['destination'], 'currency' => $request['currency'] ?: 'USD',
+                    'mode' => match ((string) ($request['service_type'] ?? '')) { 'air' => 'air', 'road' => 'road', default => 'sea' },
+                    'load_type' => array_key_exists((string) ($request['load_type'] ?? ''), \Models\FreightJobs::LOAD_TYPES) ? $request['load_type'] : 'fcl',
+                ] + $defaults;
+            }
+        }
+
+        // A claim from a job: its shipment, customer and policy come with it.
+        if ($key === 'cargo_claims') {
+            $defaults += ['claim_type' => 'damage', 'incident_date' => $today, 'currency' => 'USD'];
+            if (($_GET['freight_job_id'] ?? '') !== '' && ($job = LogisticsData::find('freight_jobs', (int) $_GET['freight_job_id'], \current_context())) !== null) {
+                $defaults = ['freight_job_id' => $job['id'], 'shipment_id' => $job['shipment_id'], 'customer_id' => $job['customer_id'],
+                             'insurer' => $job['insurer'], 'currency' => $job['insurance_currency'] ?: ($job['currency'] ?: 'USD')] + $defaults;
+            }
+        }
+
+        // A paper or a clearance file added from a job or a trip page points at its shipment.
+        if (in_array($key, ['shipment_documents', 'crossings'], true)) {
+            foreach (['shipment_id', 'trip_id', 'border_post_id', 'document_type'] as $carried) {
+                if (($_GET[$carried] ?? '') !== '' && isset(Schema::fields($key)[$carried])) {
+                    $defaults[$carried] = (string) $_GET[$carried];
+                }
+            }
+            if ($key === 'shipment_documents') {
+                $defaults += ['status' => 'pending'];
             }
         }
 

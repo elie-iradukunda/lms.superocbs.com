@@ -36,8 +36,8 @@ final class FileController
 
         // The module segment must be a real module and the file name must be a
         // plain name, so no request can walk out of the uploads folder.
-        $permission = $module === 'driver_documents' ? 'drivers' : $module;
-        if ((!Schema::has($module) && $module !== 'driver_documents') || preg_match('/^[A-Za-z0-9._-]+$/', $name) !== 1 || str_contains($name, '..')) {
+        $permission = $module === 'driver_documents' ? 'drivers' : (\Models\Uploads::FOLDERS[$module] ?? $module);
+        if ((!Schema::has($module) && $module !== 'driver_documents' && !isset(\Models\Uploads::FOLDERS[$module])) || preg_match('/^[A-Za-z0-9._-]+$/', $name) !== 1 || str_contains($name, '..')) {
             $this->fail(404, 'File not found.');
         }
 

@@ -39,6 +39,33 @@ $before = (int) $pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn()
 // particular; the notifier does not read the session.
 Notifier::refreshOperationalAlerts();
 
+// Approvals: reminders half way through the time given, escalation when it runs out.
+$approvals = Models\Approvals::sweep();
+if (array_sum($approvals) > 0) {
+    printf("Approvals: %d opened, %d reminded, %d escalated.\n", $approvals['opened'], $approvals['reminded'], $approvals['escalated']);
+}
+
+// The ERI specification's clock (sections 7, 9, 16 and 19).
+// Requests waiting at a step are raised again until they are handled, and the
+// backup is told once the backup time has passed.
+$reminded = Models\Approver::sweep();
+// A trip past the maximum days back from the turnaround point.
+$late = Models\TripLife::lateAlerts();
+// Urgent driver support left unhandled goes to the backup.
+$escalated = Models\DriverSupport::escalate();
+// A driver on a trip whose phone has not been heard from.
+$unreachable = Models\DriverWatch::sweep();
+// A truck that reached its service gets a draft service request (F3).
+$services = Models\Garage::raiseDueServices();
+if ($reminded + $late + $escalated + $unreachable + $services > 0) {
+    printf("Requests reminded: %d. Late trips: %d. Support escalated: %d. Drivers unreachable: %d. Service requests raised: %d.\n", $reminded, $late, $escalated, $unreachable, $services);
+}
+// WhatsApp messages waiting (the provider may have been unreachable).
+$whatsApp = Support\WhatsApp::flush(100);
+if ($whatsApp > 0) {
+    printf("WhatsApp: %d sent.\n", $whatsApp);
+}
+
 $raised = (int) $pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn() - $before;
 
 if ($raised === 0) {

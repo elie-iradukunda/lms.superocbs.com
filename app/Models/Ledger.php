@@ -114,11 +114,34 @@ final class Ledger
      */
     private static ?string $scope = null;
 
-    /** Reads the books in one currency until it is set again. */
+    /** Reading the books converted into the company's base currency (section 14). */
+    private static bool $base = false;
+
+    /** The choice that reads the books in the company's base currency. */
+    public const BASE = 'BASE';
+
+    /** Reads the books in one currency until it is set again; BASE reads them converted. */
     public static function inCurrency(?string $code): void
     {
         $code = strtoupper(trim((string) $code));
-        self::$scope = $code === '' || $code === 'ALL' ? null : $code;
+        self::$base = $code === self::BASE;
+        self::$scope = $code === '' || $code === 'ALL' || $code === self::BASE ? null : $code;
+    }
+
+    public static function inBase(): bool
+    {
+        return self::$base;
+    }
+
+    /**
+     * The column a side of a line is read from: as written, or converted into
+     * the company's base currency at the rate stored when it was posted.
+     */
+    public static function amount(string $side, string $alias = 'l'): string
+    {
+        $side = $side === 'credit' ? 'credit' : 'debit';
+
+        return self::$base ? "COALESCE({$alias}.base_{$side}, 0)" : "{$alias}.{$side}";
     }
 
     public static function currentCurrency(): ?string
@@ -142,11 +165,16 @@ final class Ledger
 
     private static function scopeSql(string $alias = 'e'): string
     {
+        // Each company keeps its own books (section 14): the person's company,
+        // or the whole group for whoever may see it.
+        $company = Company::condition('gl_journal_entries', $alias . '.company_id');
+        $sql = $company !== null ? ' AND ' . $company : '';
+
         if (self::$scope === null) {
-            return '';
+            return $sql;
         }
 
-        return sprintf(" AND %s.currency = '%s'", $alias, self::$scope);
+        return $sql . sprintf(" AND %s.currency = '%s'", $alias, self::$scope);
     }
 
     public static function balances(?string $from = null, ?string $to = null, bool $includeZero = false): array
@@ -157,10 +185,10 @@ final class Ledger
         $sql = "SELECT a.id, a.account_code, a.account_name, a.account_type, a.normal_balance,
                        a.report_section, a.section_order, a.depth, a.is_header, a.is_contra,
                        a.cash_flow_class, a.is_bank,
-                       COALESCE(SUM(CASE WHEN e.entry_date < :f1 THEN l.debit - l.credit END), 0) AS opening,
-                       COALESCE(SUM(CASE WHEN e.entry_date >= :f2 AND e.entry_date <= :t1 THEN l.debit  END), 0) AS period_debit,
-                       COALESCE(SUM(CASE WHEN e.entry_date >= :f3 AND e.entry_date <= :t2 THEN l.credit END), 0) AS period_credit,
-                       COALESCE(SUM(CASE WHEN e.entry_date <= :t3 THEN l.debit - l.credit END), 0) AS closing,
+                       COALESCE(SUM(CASE WHEN e.entry_date < :f1 THEN " . self::amount('debit') . " - " . self::amount('credit') . " END), 0) AS opening,
+                       COALESCE(SUM(CASE WHEN e.entry_date >= :f2 AND e.entry_date <= :t1 THEN " . self::amount('debit') . " END), 0) AS period_debit,
+                       COALESCE(SUM(CASE WHEN e.entry_date >= :f3 AND e.entry_date <= :t2 THEN " . self::amount('credit') . " END), 0) AS period_credit,
+                       COALESCE(SUM(CASE WHEN e.entry_date <= :t3 THEN " . self::amount('debit') . " - " . self::amount('credit') . " END), 0) AS closing,
                        COUNT(l.id) AS line_count
                   FROM gl_accounts a
                   LEFT JOIN gl_journal_lines l ON l.account_id = a.id
@@ -198,7 +226,7 @@ final class Ledger
     public static function profitBetween(string $from, string $to): float
     {
         $statement = self::db()->prepare(
-            "SELECT COALESCE(SUM(l.credit - l.debit), 0)
+            "SELECT COALESCE(SUM(" . self::amount('credit') . " - " . self::amount('debit') . "), 0)
                FROM gl_journal_lines l
                INNER JOIN gl_journal_entries e ON e.id = l.entry_id
                INNER JOIN gl_accounts a ON a.id = l.account_id
@@ -321,7 +349,7 @@ final class Ledger
     {
         $statement = self::db()->prepare(
             "SELECT e.id AS entry_id, e.entry_no, e.entry_date, e.memo, e.source_type, e.source_code,
-                    l.description, l.debit, l.credit
+                    l.description, " . self::amount('debit') . " AS debit, " . self::amount('credit') . " AS credit
                FROM gl_journal_lines l
                INNER JOIN gl_journal_entries e ON e.id = l.entry_id
               WHERE l.account_id = ?
@@ -337,7 +365,7 @@ final class Ledger
     public static function openingBalance(int $accountId, string $before): float
     {
         $statement = self::db()->prepare(
-            "SELECT COALESCE(SUM(l.debit - l.credit), 0)
+            "SELECT COALESCE(SUM(" . self::amount('debit') . " - " . self::amount('credit') . "), 0)
                FROM gl_journal_lines l
                INNER JOIN gl_journal_entries e ON e.id = l.entry_id
               WHERE l.account_id = ?
@@ -403,7 +431,8 @@ final class Ledger
         ?int $sourceId = null,
         ?string $sourceCode = null,
         ?string $reference = null,
-        ?string $currency = null
+        ?string $currency = null,
+        ?int $companyId = null
     ): int {
         // Each currency is its own set of books. Shillings balance against
         // shillings, francs against francs, and nothing is ever restated into
@@ -411,6 +440,11 @@ final class Ledger
         $currency = strtoupper(trim((string) $currency)) ?: Currency::base();
 
         $date = date('Y-m-d', (int) strtotime($date));
+
+        // The company whose books these are, and its base currency (section 14).
+        $companyId ??= \is_logged_in() ? \current_company_id() : Company::defaultId();
+        $baseCurrency = Company::baseCurrency($companyId);
+        $rate = Currency::crossRate($currency, $baseCurrency, $date);
 
         if (self::isPeriodClosed($date)) {
             throw new \RuntimeException(sprintf('The period containing %s is closed, so nothing can be posted into it.', $date));
@@ -440,7 +474,13 @@ final class Ledger
 
             $debits += $debit;
             $credits += $credit;
-            $prepared[] = [$accountId, $line['description'] ?? null, $debit, $credit];
+            $prepared[] = [
+                $accountId, $line['description'] ?? null, $debit, $credit,
+                $rate === null ? null : round($debit * $rate, 2), $rate === null ? null : round($credit * $rate, 2),
+                isset($line['vehicle_id']) && (int) $line['vehicle_id'] > 0 ? (int) $line['vehicle_id'] : null,
+                isset($line['trip_id']) && (int) $line['trip_id'] > 0 ? (int) $line['trip_id'] : null,
+                isset($line['request_id']) && (int) $line['request_id'] > 0 ? (int) $line['request_id'] : null,
+            ];
         }
 
         if ($prepared === []) {
@@ -475,31 +515,32 @@ final class Ledger
             if ($existingId !== null) {
                 $update = $db->prepare(
                     "UPDATE gl_journal_entries
-                        SET entry_date = ?, currency = ?, memo = ?, reference = ?, source_code = ?,
+                        SET entry_date = ?, currency = ?, base_currency = ?, exchange_rate = ?, company_id = ?, memo = ?, reference = ?, source_code = ?,
                             status = 'posted', deleted_at = NULL, posted_by = ?
                       WHERE id = ?"
                 );
-                $update->execute([$date, $currency, mb_substr($memo, 0, 255), $reference, $sourceCode, \current_user_id(), $existingId]);
+                $update->execute([$date, $currency, $baseCurrency, $rate, $companyId, mb_substr($memo, 0, 255), $reference, $sourceCode, \current_user_id(), $existingId]);
                 $db->prepare('DELETE FROM gl_journal_lines WHERE entry_id = ?')->execute([$existingId]);
                 $entryId = $existingId;
             } else {
                 $insert = $db->prepare(
                     "INSERT INTO gl_journal_entries
-                        (entry_no, entry_date, currency, memo, reference, source_type, source_id, source_code, status, posted_by)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?)"
+                        (company_id, entry_no, entry_date, currency, base_currency, exchange_rate, memo, reference, source_type, source_id, source_code, status, posted_by)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?)"
                 );
                 $insert->execute([
-                    self::nextEntryNo(), $date, $currency, mb_substr($memo, 0, 255), $reference,
+                    $companyId, self::nextEntryNo(), $date, $currency, $baseCurrency, $rate, mb_substr($memo, 0, 255), $reference,
                     $sourceType, $sourceId, $sourceCode, \current_user_id(),
                 ]);
                 $entryId = (int) $db->lastInsertId();
             }
 
             $line = $db->prepare(
-                'INSERT INTO gl_journal_lines (entry_id, line_no, account_id, description, debit, credit) VALUES (?, ?, ?, ?, ?, ?)'
+                'INSERT INTO gl_journal_lines (entry_id, line_no, account_id, description, debit, credit, base_debit, base_credit, vehicle_id, trip_id, request_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
-            foreach ($prepared as $index => [$accountId, $description, $debit, $credit]) {
-                $line->execute([$entryId, $index + 1, $accountId, $description, $debit, $credit]);
+            foreach ($prepared as $index => [$accountId, $description, $debit, $credit, $baseDebit, $baseCredit, $vehicleId, $tripId, $requestId]) {
+                $line->execute([$entryId, $index + 1, $accountId, $description, $debit, $credit, $baseDebit, $baseCredit, $vehicleId, $tripId, $requestId]);
             }
 
             if ($owning) {
@@ -536,11 +577,17 @@ final class Ledger
                 'debit' => (float) $line['credit'],
                 'credit' => (float) $line['debit'],
                 'description' => 'Reversal: ' . (string) ($line['description'] ?? ''),
+                'vehicle_id' => $line['vehicle_id'] ?? null,
+                'trip_id' => $line['trip_id'] ?? null,
+                'request_id' => $line['request_id'] ?? null,
             ];
         }
 
         $db = self::db();
-        $db->beginTransaction();
+        $owning = !$db->inTransaction();
+        if ($owning) {
+            $db->beginTransaction();
+        }
         try {
             $reversalId = self::post(
                 date('Y-m-d'),
@@ -548,15 +595,20 @@ final class Ledger
                 $lines,
                 'reversal',
                 $entryId,
-                (string) $entry['entry_no']
+                (string) $entry['entry_no'],
+                null,
+                (string) $entry['currency'],
+                isset($entry['company_id']) ? (int) $entry['company_id'] : null
             );
 
             $db->prepare("UPDATE gl_journal_entries SET status = 'reversed', reversed_by = ? WHERE id = ?")
                ->execute([$reversalId, $entryId]);
 
-            $db->commit();
+            if ($owning) {
+                $db->commit();
+            }
         } catch (\Throwable $exception) {
-            if ($db->inTransaction()) {
+            if ($owning && $db->inTransaction()) {
                 $db->rollBack();
             }
             throw $exception;
@@ -577,7 +629,7 @@ final class Ledger
         // asked of one at a time; asked of all of them it would add shillings
         // to francs and always look wrong.
         $row = self::db()->query(
-            "SELECT COALESCE(SUM(l.debit), 0) d, COALESCE(SUM(l.credit), 0) c
+            "SELECT COALESCE(SUM(" . self::amount('debit') . "), 0) d, COALESCE(SUM(" . self::amount('credit') . "), 0) c
                FROM gl_journal_lines l
                INNER JOIN gl_journal_entries e ON e.id = l.entry_id
               WHERE e.status = 'posted' AND e.deleted_at IS NULL" . self::scopeSql()

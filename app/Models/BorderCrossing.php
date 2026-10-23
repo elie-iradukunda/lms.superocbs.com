@@ -42,6 +42,12 @@ final class BorderCrossing
 
     private const FALLBACK_ACCOUNT = '5700';
 
+    /** Papers produced by lodging the declaration, so not needed to lodge it. */
+    private const FROM_THE_DECLARATION = [
+        'Customs declaration', 'Export declaration', 'Import declaration', 'T1 transit bond', 'Port charges receipt (KPA)', 'Regional transit guarantee (RCTG)',
+        'Electronic cargo tracking seal', 'Tax payment receipt', 'Weighbridge ticket', 'Customs release order',
+    ];
+
     /** Money paid for a customer, waiting to be recharged on their invoice. */
     private const RECOVERABLE_ACCOUNT = '1150';
 
@@ -61,6 +67,15 @@ final class BorderCrossing
         }
         if ($action === 'submit_declaration' && self::validDocuments($id) === 0) {
             return 'Add and validate at least one clearance document before submitting the declaration.';
+        }
+        if ($action === 'submit_declaration') {
+            // The declaration is lodged on the strength of the supporting
+            // papers; the declaration printout, the bond, the seal and the tax
+            // receipt are what comes back from it.
+            $supporting = array_values(array_diff(self::missingDocuments($id), self::FROM_THE_DECLARATION));
+            if ($supporting !== []) {
+                return sprintf('Check %s before the declaration is lodged: customs assesses it on these papers.', self::readableList($supporting));
+            }
         }
 
         if ($action === 'clear') {
@@ -446,8 +461,9 @@ final class BorderCrossing
                LEFT JOIN vehicles v ON v.id = c.vehicle_id
                LEFT JOIN drivers d ON d.id = c.driver_id
               WHERE c.deleted_at IS NULL
-                AND c.status IN ('at_border', 'lodged', 'held', 'cleared')
+                AND c.arrived_at IS NOT NULL
                 AND c.departed_at IS NULL
+                AND c.status NOT IN ('released', 'rejected')
               ORDER BY c.arrived_at"
         )->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -512,8 +528,9 @@ final class BorderCrossing
     {
         $number = trim($number);
         $column = match ($type) {
-            'Customs declaration' => 'declaration_no',
-            'T1 transit bond' => 'transit_bond_no',
+            'Customs declaration', 'Export declaration', 'Import declaration' => 'declaration_no',
+            'T1 transit bond', 'Regional transit guarantee (RCTG)' => 'transit_bond_no',
+            'Electronic cargo tracking seal' => 'seal_no',
             default => null,
         };
         if ($column === null || $number === '') {
@@ -576,8 +593,22 @@ final class BorderCrossing
         return null;
     }
 
+    /** What is still to pay on a file, in the currency it is paid in: "KES 45,000". */
+    public static function outstandingByCurrency(int $id): string
+    {
+        $crossing = self::load($id);
+        if ($crossing === null) {
+            return '';
+        }
+        $statement = Database::connection()->prepare("SELECT COALESCE(SUM(amount), 0) FROM border_charges WHERE crossing_id = ? AND status = 'pending'");
+        $statement->execute([$id]);
+        $owed = (float) $statement->fetchColumn();
+
+        return $owed > 0 ? Currency::format($owed, (string) ($crossing['currency'] ?: Currency::base())) : '';
+    }
+
     /** "Gatuna / Katuna" and "Gatuna border (Uganda / Rwanda)" are the same place. */
-    private static function sameBorder(string $postName, string $stopName): bool
+    public static function sameBorder(string $postName, string $stopName): bool
     {
         $stop = strtolower($stopName);
         foreach (preg_split('~[\s/,()-]+~', strtolower($postName)) ?: [] as $word) {

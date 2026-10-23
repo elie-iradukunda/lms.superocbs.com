@@ -41,7 +41,7 @@ final class Lookup
             'label' => 'Vehicle types',
             'description' => 'The shapes of vehicle in the fleet. Used when registering a vehicle and when a rate card is priced for one kind of vehicle.',
             'targets' => [['vehicles', 'vehicle_type'], ['rate_cards', 'vehicle_type']],
-            'defaults' => ['Delivery truck', 'Box truck', 'Refrigerated truck', 'Pickup', 'Van', 'Tanker', 'Trailer', 'Motorcycle'],
+            'defaults' => ['Tanker', 'Prime mover', 'Truck', 'Delivery truck', 'Box truck', 'Refrigerated truck', 'Pickup', 'Van', 'Trailer', 'Motorcycle'],
         ],
         'licence_class' => [
             'label' => 'Driving licence classes',
@@ -71,7 +71,7 @@ final class Lookup
             'label' => 'Supplier categories',
             'description' => 'What a supplier mainly provides.',
             'targets' => [['suppliers', 'category']],
-            'defaults' => ['Spare parts', 'Fuel', 'Packaging', 'Cold chain', 'Equipment', 'Services', 'Consumables'],
+            'defaults' => ['Spare parts', 'Fuel', 'Garage', 'Tyres', 'Crane', 'Sister company', 'Packaging', 'Cold chain', 'Equipment', 'Services', 'Consumables'],
         ],
         'procurement_category' => [
             'label' => 'Procurement categories',

@@ -82,6 +82,9 @@ try {
         'LOGISTICS_DB_NAME' => $dbName,
         'LOGISTICS_DB_USER' => 'root',
         'LOGISTICS_DB_PASS' => '',
+        // The test server is not the console, so it would post real mail with
+        // the key in .env. No key: every message is recorded, none is sent.
+        'RESEND_API_KEY' => '',
     ]);
 
     $server = proc_open(

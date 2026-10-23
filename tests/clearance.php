@@ -32,17 +32,37 @@ try {
     $beforeDocument = Models\Workflow::apply('crossings', $clearanceId, 'submit_declaration');
     $test->assert(!$beforeDocument['ok'], 'a declaration cannot be submitted without a valid document');
 
-    Models\LogisticsData::save('clearance_documents', null, [
-        'crossing_id' => (string) $clearanceId,
-        'document_type' => 'Commercial invoice',
-        'document_no' => 'INV-CLR-001',
-        'status' => 'valid',
-    ]);
+    // A new file starts with its checklist of papers, all waiting.
+    $checklist = $pdo->query("SELECT document_type FROM border_documents WHERE crossing_id = {$clearanceId} ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+    $test->assert(in_array('Import declaration', $checklist, true) && in_array('Commercial invoice', $checklist, true) && in_array('Packing list', $checklist, true), 'an import file opens with its checklist: ' . implode(', ', $checklist));
+
+    // A paper is valid when the clearance department has checked its scan.
+    $papers = static fn (array $types): array => array_map('intval', $pdo->query(
+        "SELECT id FROM border_documents WHERE crossing_id = {$clearanceId} AND document_type IN ('" . implode("','", $types) . "')"
+    )->fetchAll(PDO::FETCH_COLUMN));
+    $invoicePaper = $papers(['Commercial invoice'])[0];
+    $noScan = Models\Workflow::apply('clearance_documents', $invoicePaper, 'verify');
+    $test->assert(!$noScan['ok'], 'a paper without its scan cannot be verified');
+    $pdo->exec("UPDATE border_documents SET document_file = 'clearance_documents/test.pdf' WHERE crossing_id = {$clearanceId}");
+    $test->assert(test_sign_all('clearance_documents', $invoicePaper, 'verify')['ok'], 'the commercial invoice is verified');
+
+    $oneOfMany = Models\Workflow::apply('crossings', $clearanceId, 'submit_declaration');
+    $test->assert(!$oneOfMany['ok'] && str_contains($oneOfMany['message'], 'Packing list'), 'the declaration waits for every supporting paper: ' . $oneOfMany['message']);
+
+    $supporting = $pdo->query("SELECT id FROM border_documents WHERE crossing_id = {$clearanceId} AND status = 'pending' AND document_type NOT IN ('Import declaration', 'Tax payment receipt')")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($supporting as $paperId) {
+        test_sign_all('clearance_documents', (int) $paperId, 'verify');
+    }
 
     $test->assert(Models\Workflow::apply('crossings', $clearanceId, 'submit_declaration')['ok'], 'a declaration with a valid document can be submitted');
     $test->assert(Models\Workflow::apply('crossings', $clearanceId, 'start_review')['ok'], 'a submitted declaration can enter review');
     $test->assert(Models\Workflow::apply('crossings', $clearanceId, 'assess_duties')['ok'], 'a reviewed declaration can move to duties assessment');
     $test->assert(Models\Workflow::apply('crossings', $clearanceId, 'request_payment')['ok'], 'assessed duties can move to payment pending');
+    $withoutReceipt = Models\Workflow::apply('crossings', $clearanceId, 'clear');
+    $test->assert(!$withoutReceipt['ok'], 'customs does not clear while the declaration and tax receipt are not checked');
+    foreach ($papers(['Import declaration', 'Tax payment receipt']) as $paperId) {
+        test_sign_all('clearance_documents', $paperId, 'verify');
+    }
     $test->assert(Models\Workflow::apply('crossings', $clearanceId, 'clear')['ok'], 'a documented clearance with no unpaid charges can clear');
     $test->same('cleared', (string) $pdo->query("SELECT status FROM shipments WHERE id = {$shipmentId}")->fetchColumn(), 'clearing updates the linked shipment');
 

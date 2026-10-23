@@ -151,6 +151,9 @@ final class CustomerMail
                         $collect
                     ),
                     sprintf('Please quote consignment number %s in any correspondence about this load.', $shipment['shipment_code']),
+                    ...(($track = \Support\Mailer::link('track?code=' . rawurlencode((string) $shipment['shipment_code']))) !== ''
+                        ? [sprintf('You can follow it at any time, border by border, at %s with this consignment number and your email address.', $track)]
+                        : []),
                     'Thank you for your business.',
                 ],
                 'what' => 'notice',

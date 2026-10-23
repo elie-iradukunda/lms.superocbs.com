@@ -45,9 +45,10 @@ final class DocumentPack
         foreach ($rows as $shipment) {
             $started = $db->prepare('SELECT (SELECT COUNT(*) FROM shipment_documents WHERE shipment_id = ?) + (SELECT COUNT(*) FROM shipment_pre_dispatch_checks WHERE shipment_id = ?)');
             $started->execute([(int) $shipment['id'], (int) $shipment['id']]);
-            // Existing domestic work predates the document-pack process. Once
-            // operations starts a pack or a final check, it becomes mandatory.
-            if ((int) $started->fetchColumn() === 0) {
+            // With "every shipment needs its pack" off, existing domestic work
+            // that predates the document-pack process is let through until
+            // operations starts a pack or a final check on it.
+            if ((int) $started->fetchColumn() === 0 && Settings::int('document_pack_always', 1) !== 1) {
                 continue;
             }
             $missing = self::missingForShipment($shipment);

@@ -117,8 +117,12 @@ $minutes = isset($_GET['minutes']) ? (int) $_GET['minutes'] : 0;
         <strong>The form expired.</strong>
         <p class="small mb-0">Your session timed out before the form was sent. Please sign in again.</p>
       </div>
+    <?php elseif ($loginError === 'expired'): ?>
+      <div class="alert alert-warning">Your sign-in code expired. Please sign in again to get a new one.</div>
     <?php elseif ($loginError !== ''): ?>
       <div class="alert alert-danger">That email and password do not match an active account.</div>
+    <?php elseif (($_GET['timed_out'] ?? '') === '1'): ?>
+      <div class="alert alert-info">You were signed out after a period without activity. Please sign in again.</div>
     <?php elseif ($loginRequired): ?>
       <div class="alert alert-info">Please sign in to open that page.</div>
     <?php elseif ($loggedOut): ?>
@@ -144,8 +148,8 @@ $minutes = isset($_GET['minutes']) ? (int) $_GET['minutes'] : 0;
 
     <form method="post" action="<?= url('login') ?>" autocomplete="on">
       <?= csrf_field() ?>      <div class="form-group">
-        <label for="loginEmail">Email</label>
-        <input class="form-control" id="loginEmail" name="email" type="email" value="<?= e((string) ($_GET['email'] ?? '')) ?>"
+        <label for="loginEmail">Email or phone number</label>
+        <input class="form-control" id="loginEmail" name="email" type="text" inputmode="email" value="<?= e((string) ($_GET['email'] ?? '')) ?>"
                autocomplete="username" autofocus required>
       </div>
       <div class="form-group">

@@ -30,19 +30,19 @@ final class Reference
         'expenses' => 'reference_code',
         'inventory_items' => 'sku',
         'stock_movements' => 'movement_code',
-        'warehouse_cargo' => 'movement_code',
         'purchase_requests' => 'request_code',
         'suppliers' => 'supplier_code',
         'supplier_bills' => 'bill_no',
         'supplier_payments' => 'payment_code',
         'disbursements' => 'disbursement_code',
         'bank_statements' => 'statement_code',
-        'storage_lots' => 'lot_code',
-        'storage_releases' => 'gate_pass_no',
         'containers' => 'tracking_code',
         'journeys' => 'journey_code',
         'price_offers' => 'offer_code',
         'support_requests' => 'request_code',
+        'approval_policies' => 'policy_code',
+        'freight_jobs' => 'job_code',
+        'cargo_claims' => 'claim_code',
     ];
 
     public static function next(string $prefix, string $table, string $column, int $width = 4): string

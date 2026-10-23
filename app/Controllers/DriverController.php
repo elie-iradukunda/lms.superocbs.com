@@ -119,6 +119,124 @@ final class DriverController
         $this->back();
     }
 
+    /**
+     * The phone's position while My trips is open on the road: the truck on
+     * the live map, and arrivals at a border recorded on their own.
+     */
+    public function position(array $params): void
+    {
+        $driverId = \current_role() === 'driver' ? \current_driver_id() : null;
+        $statement = \Core\Database::connection()->prepare('SELECT * FROM trips WHERE id = ? AND deleted_at IS NULL');
+        $statement->execute([(int) ($params['id'] ?? 0)]);
+        $trip = $statement->fetch(\PDO::FETCH_ASSOC);
+        header('Content-Type: application/json; charset=utf-8');
+        if ($driverId === null || $trip === false || (int) $trip['driver_id'] !== (int) $driverId || empty($trip['vehicle_id'])) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'message' => 'That trip is not one of yours.']);
+            exit;
+        }
+        if (!in_array((string) $trip['status'], ['approved', 'loading', 'in_transit'], true)) {
+            echo json_encode(['ok' => false, 'message' => 'The trip is not on the road.']);
+            exit;
+        }
+        $lat = filter_var($_POST['lat'] ?? null, FILTER_VALIDATE_FLOAT);
+        $lng = filter_var($_POST['lng'] ?? null, FILTER_VALIDATE_FLOAT);
+        if ($lat === false || $lng === false) {
+            http_response_code(422);
+            echo json_encode(['ok' => false, 'message' => 'No position was sent.']);
+            exit;
+        }
+        // One position a minute is plenty for a lorry.
+        $recent = \Core\Database::connection()->prepare('SELECT COUNT(*) FROM vehicle_positions WHERE trip_id = ? AND received_at >= DATE_SUB(NOW(), INTERVAL 50 SECOND)');
+        $recent->execute([(int) $trip['id']]);
+        if ((int) $recent->fetchColumn() > 0) {
+            echo json_encode(['ok' => true, 'message' => 'Already up to date.']);
+            exit;
+        }
+        $speed = filter_var($_POST['speed'] ?? null, FILTER_VALIDATE_FLOAT);
+        $heading = filter_var($_POST['heading'] ?? null, FILTER_VALIDATE_FLOAT);
+        $accuracy = filter_var($_POST['accuracy'] ?? null, FILTER_VALIDATE_FLOAT);
+        $result = \Models\Tracking::record((int) $trip['vehicle_id'], (float) $lat, (float) $lng, null, 'phone',
+            $speed !== false && $speed !== null ? (float) $speed * 3.6 : null, $heading !== false && $heading !== null ? (int) $heading : null,
+            $accuracy !== false && $accuracy !== null ? (float) $accuracy : null, (int) $driverId);
+        echo json_encode($result);
+        exit;
+    }
+
+    /**
+     * The goods handed over at the door: the receiver's name, a photo of the
+     * goods or the signed note, the receiver's signature on the screen, and
+     * where it happened. The delivery is closed in the same press.
+     */
+    public function handOver(array $params): void
+    {
+        $trip = $this->ownTrip((int) ($params['id'] ?? 0));
+        $db = \Core\Database::connection();
+        $statement = $db->prepare('SELECT * FROM deliveries WHERE id = ? AND trip_id = ? AND deleted_at IS NULL');
+        $statement->execute([(int) ($params['delivery'] ?? 0), (int) $trip['id']]);
+        $delivery = $statement->fetch(\PDO::FETCH_ASSOC);
+        if ($delivery === false) {
+            Flash::error('That delivery is not on your trip.');
+            $this->back();
+        }
+        if (!in_array((string) $delivery['status'], ['loading', 'in_transit', 'at_destination'], true)) {
+            Flash::error(sprintf('%s is already %s.', $delivery['delivery_code'], \Models\Schema::label((string) $delivery['status'])));
+            $this->back();
+        }
+        $receiver = mb_substr(trim((string) ($_POST['received_by'] ?? '')), 0, 150);
+        if ($receiver === '') {
+            Flash::error('Write the name of the person who received the goods.');
+            $this->back();
+        }
+
+        $folder = rtrim((string) \config('uploads.path', dirname(__DIR__, 2) . '/storage/uploads'), "/\\") . '/deliveries';
+        if (!is_dir($folder) && !mkdir($folder, 0775, true) && !is_dir($folder)) {
+            Flash::error('The proof could not be saved: the upload folder is missing.');
+            $this->back();
+        }
+
+        $photo = $_FILES['photo'] ?? null;
+        $photoPath = null;
+        if (is_array($photo) && ($photo['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            $extension = strtolower(pathinfo((string) $photo['name'], PATHINFO_EXTENSION));
+            if (!in_array($extension, ['jpg', 'jpeg', 'png', 'webp', 'pdf'], true) || (int) $photo['size'] > (int) \config('uploads.max_bytes', 5242880)) {
+                Flash::error('The photo must be a picture or a PDF, no bigger than the upload limit.');
+                $this->back();
+            }
+            $name = date('Ymd-His') . '-' . bin2hex(random_bytes(6)) . '.' . $extension;
+            if (move_uploaded_file((string) $photo['tmp_name'], $folder . '/' . $name)) {
+                $photoPath = 'deliveries/' . $name;
+            }
+        }
+
+        $signaturePath = null;
+        $signature = (string) ($_POST['signature'] ?? '');
+        if (preg_match('#^data:image/png;base64,([A-Za-z0-9+/=]+)$#', $signature, $match) === 1) {
+            $png = base64_decode($match[1], true);
+            if ($png !== false && strlen($png) > 200 && strlen($png) < 1_500_000 && str_starts_with($png, "\x89PNG")) {
+                $name = date('Ymd-His') . '-' . bin2hex(random_bytes(6)) . '-signature.png';
+                if (file_put_contents($folder . '/' . $name, $png) !== false) {
+                    $signaturePath = 'deliveries/' . $name;
+                }
+            }
+        }
+        if ($photoPath === null && $signaturePath === null) {
+            Flash::error('Take a photo of the signed delivery note, or let the receiver sign on the screen, before closing the delivery.');
+            $this->back();
+        }
+
+        $lat = filter_var($_POST['lat'] ?? null, FILTER_VALIDATE_FLOAT);
+        $lng = filter_var($_POST['lng'] ?? null, FILTER_VALIDATE_FLOAT);
+        $db->prepare('UPDATE deliveries SET proof_file = COALESCE(?, proof_file), recipient_signature = COALESCE(?, recipient_signature), collected_by = ?,
+                             pod_latitude = ?, pod_longitude = ? WHERE id = ?')
+           ->execute([$photoPath, $signaturePath, $receiver, $lat !== false && $lat !== null ? $lat : null, $lng !== false && $lng !== null ? $lng : null, (int) $delivery['id']]);
+        \Models\AuditLog::record('delivery.proof_captured', 'deliveries', (string) $delivery['delivery_code'], null, ['photo' => $photoPath !== null, 'signature' => $signaturePath !== null, 'received_by' => $receiver]);
+
+        $result = \Models\Workflow::apply('deliveries', (int) $delivery['id'], 'complete');
+        $result['ok'] ? Flash::success($result['message']) : Flash::error($result['message']);
+        $this->back();
+    }
+
     /** The trip, only when it is this driver's. */
     private function ownTrip(int $id): array
     {

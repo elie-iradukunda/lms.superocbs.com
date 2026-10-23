@@ -29,11 +29,8 @@ final class Workflow
             // was created for it, not because somebody pressed a button and then
             // walked away from the form.
         ],
-        'trips' => [
-            'dispatch' => ['from' => ['requested', 'approved', 'loading'], 'to' => 'in_transit'],
-            'complete' => ['from' => ['loading', 'in_transit'], 'to' => 'delivered'],
-            'reject' => ['from' => ['requested', 'approved', 'loading'], 'to' => 'cancelled', 'needs_reason' => true],
-        ],
+        // Trips move only through their own lifecycle (Models\TripLife): the
+        // money first, then the driver's taps, then the handover.
         'deliveries' => [
             'drop' => ['from' => ['loading', 'in_transit'], 'to' => 'at_destination'],
             'complete' => ['from' => ['loading', 'in_transit', 'at_destination'], 'to' => 'delivered'],
@@ -80,11 +77,6 @@ final class Workflow
         'disbursements' => [
             'write_off' => ['from' => ['pending'], 'to' => 'written_off', 'needs_reason' => true],
         ],
-        'support_requests' => [
-            'acknowledge' => ['from' => ['open'], 'to' => 'in_progress'],
-            'resolve' => ['from' => ['open', 'in_progress'], 'to' => 'resolved'],
-            'reject' => ['from' => ['open', 'in_progress'], 'to' => 'rejected', 'needs_reason' => true],
-        ],
         'price_offers' => [
             'send' => ['from' => ['draft', 'sent'], 'to' => 'sent'],
             'accept' => ['from' => ['sent'], 'to' => 'accepted'],
@@ -93,6 +85,38 @@ final class Workflow
         'containers' => [
             'unload' => ['from' => ['out_full'], 'to' => 'unloaded'],
             'return' => ['from' => ['out_full', 'unloaded'], 'to' => 'returned'],
+        ],
+        // The sea or air leg, milestone by milestone; the customer hears each one.
+        'freight_jobs' => [
+            'depart' => ['from' => ['booked'], 'to' => 'departed'],
+            'arrive' => ['from' => ['booked', 'departed'], 'to' => 'arrived'],
+            'start_customs' => ['from' => ['arrived'], 'to' => 'customs'],
+            'clear' => ['from' => ['arrived', 'customs'], 'to' => 'cleared'],
+            'go_inland' => ['from' => ['cleared'], 'to' => 'inland'],
+            'deliver' => ['from' => ['arrived', 'cleared', 'inland'], 'to' => 'delivered'],
+            'close' => ['from' => ['delivered'], 'to' => 'closed'],
+            'cancel' => ['from' => ['booked', 'departed', 'arrived', 'customs'], 'to' => 'cancelled', 'needs_reason' => true],
+        ],
+        'cargo_claims' => [
+            'submit' => ['from' => ['open'], 'to' => 'submitted'],
+            'settle' => ['from' => ['submitted'], 'to' => 'settled'],
+            'reject' => ['from' => ['open', 'submitted'], 'to' => 'rejected', 'needs_reason' => true],
+        ],
+        // A paper is valid once the departments on the rules have checked it.
+        'shipment_documents' => [
+            'verify' => ['from' => ['pending'], 'to' => 'valid'],
+            'reject' => ['from' => ['pending', 'valid'], 'to' => 'rejected', 'needs_reason' => true],
+            'resubmit' => ['from' => ['rejected', 'expired'], 'to' => 'pending'],
+        ],
+        'clearance_documents' => [
+            'verify' => ['from' => ['pending'], 'to' => 'valid'],
+            'reject' => ['from' => ['pending', 'valid'], 'to' => 'rejected', 'needs_reason' => true],
+            'resubmit' => ['from' => ['rejected', 'expired'], 'to' => 'pending'],
+        ],
+        // A new MoMo number is paid to only once the OM approves it (control 12).
+        'driver_momo_changes' => [
+            'approve' => ['from' => ['pending'], 'to' => 'approved'],
+            'reject' => ['from' => ['pending'], 'to' => 'rejected', 'needs_reason' => true],
         ],
     ];
 
@@ -111,7 +135,29 @@ final class Workflow
         'containers' => ['containers', 'status'],
         'price_offers' => ['price_offers', 'status'],
         'support_requests' => ['support_requests', 'status'],
+        'shipment_documents' => ['shipment_documents', 'status'],
+        'clearance_documents' => ['border_documents', 'status'],
+        'freight_jobs' => ['freight_jobs', 'status'],
+        'cargo_claims' => ['cargo_claims', 'status'],
+        'driver_momo_changes' => ['driver_momo_changes', 'status'],
     ];
+
+    /** @return list<string> the statuses an action may be taken from */
+    public static function fromStatuses(string $module, string $action): array
+    {
+        return self::TRANSITIONS[$module][$action]['from'] ?? [];
+    }
+
+    /** The status an action moves a record to. */
+    public static function targetStatus(string $module, string $action): ?string
+    {
+        return self::TRANSITIONS[$module][$action]['to'] ?? null;
+    }
+
+    public static function hasAction(string $module, string $action): bool
+    {
+        return isset(self::TRANSITIONS[$module][$action]);
+    }
 
     /** Actions available for a record right now, given its status. */
     public static function availableActions(string $module, array $record): array
@@ -193,6 +239,12 @@ final class Workflow
             return ['ok' => false, 'message' => $guard];
         }
 
+        // Each department signs in turn; only the last signature moves it.
+        $signed = Approvals::gate($module, $action, $record, $reason);
+        if ($signed !== null) {
+            return $signed;
+        }
+
         $db = Database::connection();
 
         // Only open a transaction when nobody else already has one: an action
@@ -233,6 +285,8 @@ final class Workflow
             Journey::syncForTrip($id);
         }
 
+        Approvals::afterTransition($module, $action, $record, $reason);
+
         return ['ok' => true, 'message' => $message];
     }
 
@@ -243,6 +297,29 @@ final class Workflow
     {
         if ($module === 'trips' && $action === 'dispatch') {
             return self::guardDispatch($record);
+        }
+
+        if ($module === 'freight_jobs') {
+            return FreightJobs::guard($action, $record);
+        }
+
+        if ($module === 'cargo_claims' && $action === 'settle' && ($record['settled_amount'] === null || (float) $record['settled_amount'] < 0)) {
+            return 'Enter what the insurer paid (it may be 0) before settling the claim.';
+        }
+
+        if ($module === 'trips' && $action === 'approve') {
+            if (empty($record['vehicle_id']) || empty($record['driver_id'])) {
+                return 'Assign the truck and the driver before the trip is approved.';
+            }
+            $clearance = Clearance::dispatchGuard((int) $record['id']);
+            if ($clearance !== null) {
+                return 'Not ready for release: ' . $clearance;
+            }
+        }
+
+        if (($module === 'shipment_documents' || $module === 'clearance_documents') && $action === 'verify'
+            && trim((string) ($record['document_file'] ?? '')) === '') {
+            return 'Attach the scan of the paper before it is checked: the border and the driver need the copy, not just its number.';
         }
 
         if ($module === 'trips' && $action === 'complete' && empty($record['driver_id'])) {
@@ -373,6 +450,19 @@ final class Workflow
             return $documentGate;
         }
 
+        // Signed off by every department on the rules before it leaves.
+        $release = self::awaitingRelease($trip);
+        if ($release !== null) {
+            return $release;
+        }
+
+        // Every border on the route has its clearance lodged before the truck
+        // leaves the yard, not after it is standing at the post.
+        $clearance = Clearance::dispatchGuard((int) $trip['id']);
+        if ($clearance !== null) {
+            return $clearance;
+        }
+
         $capacity = $vehicle['capacity_kg'] !== null ? (float) $vehicle['capacity_kg'] : null;
         if ($capacity !== null && $capacity > 0 && (float) $totals['weight'] > $capacity) {
             return sprintf(
@@ -384,6 +474,22 @@ final class Workflow
         }
 
         return null;
+    }
+
+    /** Why a trip may not leave yet because a department has not signed it, or null. */
+    public static function awaitingRelease(array $trip): ?string
+    {
+        if ((string) $trip['status'] !== 'requested' || !Approvals::has('trips', 'approve') || Approvals::requiredSteps('trips', 'approve', $trip) === []) {
+            return null;
+        }
+        Approvals::open('trips', (int) $trip['id'], 'approve');
+        foreach (Approvals::latestRound('trips', (int) $trip['id'], 'approve') as $step) {
+            if ($step['status'] === 'pending') {
+                return sprintf('The trip is not released yet: it is waiting for "%s" by %s.', $step['step_label'], \role_label((string) $step['approver_role']));
+            }
+        }
+
+        return 'The trip is not released yet: press Approve trip to collect the signatures.';
     }
 
     // ---------------------------------------------------------------- effects
@@ -405,7 +511,7 @@ final class Workflow
             $module === 'trips' && $action === 'reject' => self::cancelTrip($db, $record, $code, $reason),
 
             $module === 'cheques' => Cheque::applied($action, $record, $reason, $actor),
-            $module === 'crossings' => BorderCrossing::applied($action, $record, $reason, $actor),
+            $module === 'crossings' => Clearance::afterStep($action, $record, BorderCrossing::applied($action, $record, $reason, $actor)),
             $module === 'supplier_bills', $module === 'disbursements' => Payables::applied($module, $action, $record, $reason, $actor),
             $module === 'containers' => Containers::applied($action, $record, $reason, $actor),
             $module === 'price_offers' => PriceOffer::applied($action, $record, $reason, $actor),
@@ -424,6 +530,15 @@ final class Workflow
 
             $module === 'maintenance' && $action === 'approve' => self::completeMaintenance($db, $record, $code, $actor),
             $module === 'maintenance' && $action === 'reject' => sprintf('Work order %s was cancelled.', $code),
+
+            $module === 'trips' && $action === 'approve' => self::approveTrip($record, $code),
+            $module === 'freight_jobs' => FreightJobs::applied($action, $record, $reason),
+            $module === 'cargo_claims' && $action === 'settle' => self::settleClaim($db, $record, $code),
+            $module === 'cargo_claims' && $action === 'submit' => sprintf('Claim %s marked as submitted to the insurer.', $code),
+            $module === 'cargo_claims' && $action === 'reject' => sprintf('Claim %s closed as rejected.', $code),
+            $module === 'shipment_documents', $module === 'clearance_documents' => Clearance::documentMoved($module, $action, $record, $reason),
+
+            $module === 'driver_momo_changes' => Fleet::momoDecided($action, $record, $reason, $actor),
 
             $module === 'invoices' && $action === 'approve' => self::issueInvoice($db, $record, $code, $actor),
             $module === 'invoices' && $action === 'reject' => self::cancelInvoice($id, $code),
@@ -471,6 +586,34 @@ final class Workflow
         return sprintf('Request %s was rejected.', $code);
     }
 
+    private static function settleClaim(PDO $db, array $claim, string $code): string
+    {
+        $db->prepare('UPDATE cargo_claims SET settled_at = COALESCE(settled_at, CURDATE()) WHERE id = ?')->execute([(int) $claim['id']]);
+        Notifier::toRoles(['finance', 'logistics_manager'], 'Cargo claim settled: ' . $code, sprintf(
+            '%s settled: %s paid against %s claimed.',
+            $code, Currency::format((float) $claim['settled_amount'], (string) $claim['currency']), Currency::format((float) $claim['claimed_amount'], (string) $claim['currency'])
+        ), 'cargo_claims', 'success', 'cargo_claims', (string) $claim['id']);
+
+        return sprintf('Claim %s settled. Finance has been told to record the money received.', $code);
+    }
+
+    /** Every department has signed: the driver may drive out when he is ready. */
+    private static function approveTrip(array $trip, string $code): string
+    {
+        $driverUser = Database::connection()->prepare('SELECT user_id FROM drivers WHERE id = ?');
+        $driverUser->execute([(int) $trip['driver_id']]);
+        $driverUserId = $driverUser->fetchColumn();
+        Notifier::toUser(
+            $driverUserId ? (int) $driverUserId : null,
+            'Your trip is approved',
+            sprintf('%s from %s to %s is released. Press Start trip on My trips when you drive out.', $code, $trip['pickup_location'], $trip['destination']),
+            'my-trips', 'success', 'trips', $code
+        );
+        Notifier::bellToRole('logistics_manager', 'Trip released', sprintf('%s is approved and can be dispatched.', $code), 'trips', 'success', 'trips', (string) $trip['id']);
+
+        return sprintf('%s is approved. The driver has been told and can start the trip.', $code);
+    }
+
     private static function dispatchTrip(PDO $db, array $trip, string $code): string
     {
         $id = (int) $trip['id'];
@@ -488,7 +631,7 @@ final class Workflow
         // Distances on the trip count from the clock at the start: the driver's
         // reading when he starts it himself, otherwise the truck's last known one.
         $db->prepare('UPDATE trips t INNER JOIN vehicles v ON v.id = t.vehicle_id SET t.start_mileage = COALESCE(t.start_mileage, v.mileage) WHERE t.id = ?')->execute([$id]);
-        $db->prepare("UPDATE vehicles SET status = 'on_trip' WHERE id = ?")->execute([(int) $trip['vehicle_id']]);
+        $db->prepare("UPDATE vehicles SET status = 'on_road' WHERE id = ?")->execute([(int) $trip['vehicle_id']]);
         $db->prepare("UPDATE drivers SET status = 'on_trip' WHERE id = ?")->execute([(int) $trip['driver_id']]);
         $db->prepare("UPDATE shipments SET status = 'in_transit' WHERE trip_id = ? AND deleted_at IS NULL AND status IN ('draft','booked','loaded','released')")->execute([$id]);
         $db->prepare("UPDATE deliveries SET status = 'in_transit' WHERE trip_id = ? AND deleted_at IS NULL AND status = 'loading'")->execute([$id]);
@@ -521,10 +664,8 @@ final class Workflow
         // ledger, with this trip as the document behind the issue.
         $issued = StockIssue::issueTrip($id, $code);
 
-        // Physically, the shed is now emptier. Each load leaves the depot it was
-        // standing in, with this trip named as the reason, so a depot manager can
-        // answer "where did yesterday's pallets go" without asking anybody.
-        CargoCustody::loaded($id);
+        // A forwarded consignment cleared at the port is now on the truck.
+        FreightJobs::followTrip($id);
 
         // The sheet the driver works from on the road: the loads behind him, who
         // signs for each one, and the route. A notification he can only read at
@@ -565,10 +706,10 @@ final class Workflow
 
         $db->prepare('UPDATE trips SET completed_at = NOW(), arrival_at = COALESCE(arrival_at, NOW()) WHERE id = ?')->execute([$id]);
         if (!empty($trip['vehicle_id'])) {
-            $db->prepare("UPDATE vehicles SET status = 'available' WHERE id = ? AND status = 'on_trip'")->execute([(int) $trip['vehicle_id']]);
+            $db->prepare("UPDATE vehicles SET status = 'available' WHERE id = ? AND status IN ('assigned', 'loading', 'on_road', 'offloading', 'returning')")->execute([(int) $trip['vehicle_id']]);
         }
         if (!empty($trip['driver_id'])) {
-            $db->prepare("UPDATE drivers SET status = 'available' WHERE id = ? AND status = 'on_trip'")->execute([(int) $trip['driver_id']]);
+            $db->prepare("UPDATE drivers SET status = 'active' WHERE id = ? AND status = 'on_trip'")->execute([(int) $trip['driver_id']]);
         }
         // A load that cleared a border on the way is still aboard until the trip ends.
         $db->prepare("UPDATE shipments SET status = 'delivered' WHERE trip_id = ? AND deleted_at IS NULL AND status IN ('loaded','in_transit','cleared','released')")->execute([$id]);
@@ -595,10 +736,10 @@ final class Workflow
 
         $db->prepare('UPDATE trips SET notes = TRIM(CONCAT(COALESCE(notes, ""), "\nCancelled: ", ?)) WHERE id = ?')->execute([$reason, $id]);
         if (!empty($trip['vehicle_id'])) {
-            $db->prepare("UPDATE vehicles SET status = 'available' WHERE id = ? AND status = 'on_trip'")->execute([(int) $trip['vehicle_id']]);
+            $db->prepare("UPDATE vehicles SET status = 'available' WHERE id = ? AND status IN ('assigned', 'loading', 'on_road', 'offloading', 'returning')")->execute([(int) $trip['vehicle_id']]);
         }
         if (!empty($trip['driver_id'])) {
-            $db->prepare("UPDATE drivers SET status = 'available' WHERE id = ? AND status = 'on_trip'")->execute([(int) $trip['driver_id']]);
+            $db->prepare("UPDATE drivers SET status = 'active' WHERE id = ? AND status = 'on_trip'")->execute([(int) $trip['driver_id']]);
         }
         $db->prepare("UPDATE shipments SET status = 'cancelled' WHERE trip_id = ? AND deleted_at IS NULL AND status NOT IN ('delivered','returned')")->execute([$id]);
         if (!empty($trip['request_id'])) {
@@ -658,15 +799,6 @@ final class Workflow
 
         $where = self::warehouseName($db, $delivery['destination_warehouse_id'] ?? null) ?? (string) $delivery['destination'];
 
-        // It is in somebody's shed now, and that shed has to show it.
-        if (!empty($delivery['shipment_id'])) {
-            CargoCustody::arrived(
-                (int) $delivery['shipment_id'],
-                !empty($delivery['destination_warehouse_id']) ? (int) $delivery['destination_warehouse_id'] : null,
-                $id
-            );
-        }
-
         Notifier::toRole(
             'logistics_manager',
             'Load at its destination warehouse',
@@ -711,13 +843,8 @@ final class Workflow
             $db->prepare("UPDATE shipments SET status = 'delivered' WHERE id = ?")->execute([(int) $delivery['shipment_id']]);
         }
 
-        // Handed over, so it is out of the depot as well as off the books.
         if (!empty($delivery['shipment_id'])) {
-            CargoCustody::collected(
-                (int) $delivery['shipment_id'],
-                !empty($delivery['destination_warehouse_id']) ? (int) $delivery['destination_warehouse_id'] : null,
-                $id
-            );
+            FreightJobs::followDelivery((int) $delivery['shipment_id']);
         }
 
         $warning = empty($delivery['proof_file'])
@@ -1043,7 +1170,7 @@ final class Workflow
            ->execute([$actor, $partsTotal, $id]);
 
         if (!empty($order['vehicle_id'])) {
-            $db->prepare("UPDATE vehicles SET status = 'available' WHERE id = ? AND status = 'maintenance'")->execute([(int) $order['vehicle_id']]);
+            $db->prepare("UPDATE vehicles SET status = 'available' WHERE id = ? AND status = 'in_garage'")->execute([(int) $order['vehicle_id']]);
         }
 
         // Parts from our own shelves leave the store now, and the truck takes
@@ -1226,12 +1353,16 @@ final class Workflow
 
     private static function codeColumn(string $module): string
     {
+        if ($module === 'driver_momo_changes') {
+            return 'new_number';
+        }
         return Schema::has($module) ? Schema::get($module)['code'] : 'id';
     }
 
     private static function record(string $table, int $id): ?array
     {
-        $allowed = ['transport_requests', 'trips', 'deliveries', 'expenses', 'purchase_requests', 'maintenance_orders', 'invoices', 'vehicles', 'drivers', 'gl_cheques', 'border_crossings', 'supplier_bills', 'disbursements', 'containers', 'price_offers', 'support_requests'];
+        // Only the tables a workflow is declared for.
+        $allowed = array_merge(array_column(self::STATUS_COLUMN, 0), ['vehicles', 'drivers']);
         if (!in_array($table, $allowed, true)) {
             throw new \InvalidArgumentException('Unknown workflow table.');
         }

@@ -8,147 +8,185 @@ use Core\Database;
 use PDO;
 
 /**
- * Dashboard data: KPI cards, charts, attention items and recent trips, all read from the database.
+ * Dashboard charts and attention items (ERI specification, section 20), all
+ * read from the database for the company in view — or the whole group for
+ * someone who sees every company and chose "All companies".
+ *
+ * The to-do counts of each role are the home cards (Models\RoleHome); this
+ * class draws the trends behind them.
  *
  * A chart is a plain array the browser renders (see public/assets/js/lms-charts.js):
  * id, title, subtitle, type (donut|column|bar|area|line|stacked|meter|notice), span (grid columns of 12),
  * format (int|rwf|litres|pct), categories, series [{name, data}], slots (categorical colour slot per
  * series - or per category for donuts - so colour follows the entity, never its rank).
+ * Format "rwf" means money: it is drawn in the currency chosen above the charts.
  */
 final class ChartData
 {
-    private const VEHICLE_STATUSES = ['available' => 'Available', 'on_trip' => 'On trip', 'maintenance' => 'Maintenance', 'inactive' => 'Inactive'];
-    private const TRIP_STATUSES = ['requested' => 'Requested', 'approved' => 'Approved', 'loading' => 'Loading', 'in_transit' => 'In transit', 'delivered' => 'Delivered', 'cancelled' => 'Cancelled'];
-    private const REQUEST_STATUSES = ['pending' => 'Pending', 'approved' => 'Approved', 'assigned' => 'Assigned', 'rejected' => 'Rejected', 'cancelled' => 'Cancelled'];
-    private const DELIVERY_STATUSES = ['loading' => 'Loading', 'in_transit' => 'In transit', 'delivered' => 'Delivered', 'failed' => 'Failed'];
     private const STOCK_STATUSES = ['in_stock' => 'In stock', 'reorder' => 'Reorder', 'out_of_stock' => 'Out of stock'];
-    private const PURCHASE_STATUSES = ['draft' => 'Draft', 'quotation' => 'Quotation', 'approved' => 'Approved', 'received' => 'Received', 'rejected' => 'Rejected'];
-    /** Same colour as the trip statuses of the same name (Loading, In transit, Delivered), so a status reads the same everywhere. */
-    private const DELIVERY_SLOTS = [2, 3, 4, 5];
-    private const EXPENSE_CATEGORIES = ['Fuel', 'Toll', 'Repair', 'Allowance', 'Parking', 'Insurance'];
+    private const REQUEST_STEPS = ['draft' => 'Draft', 'sent' => 'To verify', 'verified' => 'To authorize', 'authorized' => 'To pay', 'partly_paid' => 'Partly paid', 'returned' => 'Returned'];
+    private const JOB_STATUSES = ['open' => 'Open', 'scheduled' => 'Scheduled', 'in_progress' => 'In progress', 'completed' => 'Completed'];
 
-    public static function forRole(string $role, ?int $userId): array
+    /** The currency the money charts are drawn in. Money is never added across currencies. */
+    private static string $currency = '';
+
+    public static function forRole(string $role, ?int $userId, ?string $currency = null): array
     {
-        return match ($role) {
-            'super_admin' => [self::fleetStatus(4), self::monthlyExpenses(8), self::tripsByStatus(6), self::auditActivity(6)],
-            'logistics_manager' => [self::tripsWeekly(8, 'Trips per week', 'Trips departing each week, last 8 weeks'), self::deliveryCompletion(4), self::requestPipeline(6), self::deliveriesByStatus(6)],
-            'fleet_manager' => [self::fleetStatus(4), self::fuelTrend(8), self::fuelByVehicle(6), self::maintenanceCost(6), self::licenceExpiry(12)],
-            'warehouse_manager' => [self::stockLevels(8), self::stockStatus(4), self::stockValue(6), self::purchaseStatus(6)],
-            'finance' => [self::expensesByCategory(4), self::expenseTrend(8), self::expenseStatusByMonth(6), self::fuelCostByVehicle(6), self::procurementBySupplier(12)],
-            'management' => [self::fleetUtilization(4), self::tripsTrend(8), self::costTrend(6), self::costPerTrip(6)],
-            'workshop' => [self::fleetStatus(4), self::maintenanceCost(8)],
+        self::$currency = self::currencyCode($currency);
+        $charts = match ($role) {
+            'super_admin' => [self::fleetStatus(4), self::tripsByStatus(8), self::requestPipeline(6), self::auditActivity(6)],
+            // The MD's dashboard is lean (section 20): utilization, trips, money.
+            'management' => [self::fleetUtilization(4), self::tripsTrend(8), self::incomeAndCost(8), self::requestPipeline(4)],
+            'logistics_manager' => [self::fleetStatus(4), self::tripsWeekly(8, 'Trips per week', 'Trips departing each week, last 8 weeks'), self::tripsByStatus(6), self::driverStatus(3), self::licenceExpiry(3), self::fuelTrend(6)],
+            'finance' => [self::spendByForm(4), self::spendTrend(8), self::incomeAndCost(6), self::paidTrend(6), self::billedAndCollected(12)],
+            'cashier' => [self::paidTrend(8), self::paymentMethods(4)],
+            'warehouse_manager' => [self::stockLevels(8), self::stockStatus(4), self::jobCards(6), self::stockValue(6), self::maintenanceCost(12)],
+            'clearance_officer' => [self::clearanceStages(6), self::borderDwell(6)],
             'driver' => self::driverCharts($userId),
             default => [],
         };
+
+        $charts = array_values(array_filter($charts, static fn (?array $chart): bool => $chart !== null));
+        foreach ($charts as &$chart) {
+            if (($chart['format'] ?? '') === 'rwf') {
+                $chart['currency'] = self::$currency;
+            }
+        }
+        unset($chart);
+
+        return $charts;
     }
 
-    /** @return list<array{label: string, value: string, trend: string, icon: string}> */
+    /** The currency asked for, when it is a real one; the company's base currency otherwise. */
+    public static function currencyCode(?string $code): string
+    {
+        $code = strtoupper(trim((string) $code));
+        if (preg_match('/^[A-Z]{3}$/', $code) === 1) {
+            return $code;
+        }
+        $company = \is_logged_in() ? \current_company_id() : 0;
+
+        return $company > 0 ? Company::baseCurrency($company) : Currency::base();
+    }
+
+    /** " AND currency = 'USD'": the code is checked to be three letters before it is written in. */
+    private static function cur(string $column = 'currency'): string
+    {
+        return sprintf(" AND %s = '%s'", $column, self::currencyCode(self::$currency !== '' ? self::$currency : null));
+    }
+
+    /** " AND t.company_id = 2" for the company in view; nothing when looking at the whole group. */
+    private static function co(string $table, string $column = 'company_id'): string
+    {
+        $condition = Company::condition($table, $column);
+
+        return $condition !== null ? ' AND ' . $condition : '';
+    }
+
+    /**
+     * "RWF 1.2M · USD 3.4K": a total per currency, base currency first, never added together.
+     *
+     * @param string $sql returns rows of (currency, total)
+     */
+    public static function moneyByCurrency(string $sql, array $params = []): string
+    {
+        $base = Currency::base();
+        $totals = [];
+        foreach (self::rows($sql, $params) as $row) {
+            $code = strtoupper((string) ($row['currency'] ?? '')) ?: $base;
+            $totals[$code] = ($totals[$code] ?? 0) + (float) ($row['total'] ?? 0);
+        }
+        $totals = array_filter($totals, static fn (float $v): bool => abs($v) >= 0.005);
+        if ($totals === []) {
+            return $base . ' 0';
+        }
+        uksort($totals, static fn (string $a, string $b): int => [$a !== $base, $a] <=> [$b !== $base, $b]);
+
+        return implode(' · ', array_map(static fn (string $code, float $amount): string => self::compact($amount, $code), array_keys($totals), $totals));
+    }
+
+    private static function compact(float $amount, string $code): string
+    {
+        return $code . ' ' . match (true) {
+            abs($amount) >= 1_000_000 => rtrim(rtrim(number_format($amount / 1_000_000, 1), '0'), '.') . 'M',
+            abs($amount) >= 1_000 => rtrim(rtrim(number_format($amount / 1_000, 1), '0'), '.') . 'K',
+            default => number_format($amount),
+        };
+    }
+
+    /**
+     * The KPI row. Every ERI role has its home cards instead; only the
+     * clearance desk keeps its four figures here.
+     *
+     * @return list<array{label: string, value: string, trend: string, icon: string}>
+     */
     public static function metrics(string $role, ?int $userId): array
     {
-        $today = date('Y-m-d');
-        $monthStart = date('Y-m-01');
-        $vehicles = (int) self::scalar('SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL');
-        $onTrip = (int) self::scalar("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND status = 'on_trip'");
-        $available = (int) self::scalar("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND status = 'available'");
-        $activeTrips = (int) self::scalar("SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND status IN ('loading','in_transit')");
-        $monthExpenses = (float) self::scalar("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE deleted_at IS NULL AND status <> 'rejected' AND expense_date >= ?", [$monthStart]);
-        $pendingExpenses = self::row("SELECT COUNT(*) n, COALESCE(SUM(amount), 0) total FROM expenses WHERE deleted_at IS NULL AND status = 'pending'");
-        $serviceDue = (int) self::scalar('SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND next_service_date IS NOT NULL AND next_service_date <= DATE_ADD(?, INTERVAL 14 DAY)', [$today]);
-        $lowStock = (int) self::scalar('SELECT COUNT(*) FROM inventory_items WHERE deleted_at IS NULL AND quantity <= minimum_level');
-        $delivered = (int) self::scalar("SELECT COUNT(*) FROM deliveries WHERE deleted_at IS NULL AND status = 'delivered'");
-        $deliveries = (int) self::scalar('SELECT COUNT(*) FROM deliveries WHERE deleted_at IS NULL');
+        if ($role !== 'clearance_officer') {
+            return [];
+        }
         $card = static fn (string $label, string|int $value, string $caption, string $icon): array => ['label' => $label, 'value' => (string) $value, 'trend' => $caption, 'icon' => $icon];
+        $co = self::co('border_crossings');
 
-        return match ($role) {
-            'super_admin' => [
-                $card('Total vehicles', $vehicles, "{$available} available", 'truck'),
-                $card('Active trips', $activeTrips, self::scalar("SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND status IN ('requested','approved')") . ' planned', 'navigation'),
-                $card('Pending requests', (int) self::scalar("SELECT COUNT(*) FROM transport_requests WHERE deleted_at IS NULL AND status = 'pending'"), self::scalar("SELECT COUNT(*) FROM transport_requests WHERE deleted_at IS NULL AND status = 'pending' AND priority IN ('high','urgent')") . ' high priority', 'clipboard'),
-                $card('Monthly expenses', self::rwf($monthExpenses), "{$pendingExpenses['n']} pending approval", 'credit-card'),
-            ],
-            'logistics_manager' => [
-                $card('Fleet vehicles', $vehicles, "{$onTrip} on trip", 'truck'),
-                $card('Active trips', $activeTrips, self::scalar("SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND status IN ('requested','approved')") . ' planned', 'navigation'),
-                $card('Deliveries in progress', (int) self::scalar("SELECT COUNT(*) FROM deliveries WHERE deleted_at IS NULL AND status IN ('loading','in_transit')"), "{$delivered} delivered", 'package'),
-                $card('Open maintenance', (int) self::scalar("SELECT COUNT(*) FROM maintenance_orders WHERE deleted_at IS NULL AND status IN ('open','scheduled','in_progress')"), self::scalar("SELECT COUNT(*) FROM maintenance_orders WHERE deleted_at IS NULL AND status IN ('open','scheduled','in_progress') AND priority = 'urgent'") . ' urgent', 'tool'),
-            ],
-            'fleet_manager' => [
-                $card('Fleet vehicles', $vehicles, "{$onTrip} on trip", 'truck'),
-                $card('Available vehicles', $available, self::scalar("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND status = 'maintenance'") . ' in maintenance', 'check'),
-                $card('Due for service', $serviceDue, self::scalar('SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND next_service_date < ?', [$today]) . ' overdue', 'tool'),
-                $card('Fuel this month', self::number((float) self::scalar('SELECT COALESCE(SUM(litres), 0) FROM fuel_records WHERE deleted_at IS NULL AND purchased_at >= ?', [$monthStart])) . ' L', self::scalar('SELECT COUNT(*) FROM fuel_records WHERE deleted_at IS NULL AND purchased_at >= ?', [$monthStart]) . ' fill-ups', 'droplet'),
-            ],
-            'warehouse_manager' => [
-                $card('Stock items', (int) self::scalar('SELECT COUNT(*) FROM inventory_items WHERE deleted_at IS NULL'), self::scalar("SELECT COUNT(*) FROM warehouses WHERE deleted_at IS NULL AND status = 'active'") . ' warehouses', 'package'),
-                $card('Low stock alerts', $lowStock, self::scalar('SELECT COUNT(*) FROM inventory_items WHERE deleted_at IS NULL AND quantity = 0') . ' out of stock', 'alert-triangle'),
-                $card('Open purchase requests', (int) self::scalar("SELECT COUNT(*) FROM purchase_requests WHERE deleted_at IS NULL AND status IN ('draft','quotation','approved')"), self::scalar("SELECT COUNT(*) FROM purchase_requests WHERE deleted_at IS NULL AND status = 'approved'") . ' approved', 'clipboard'),
-                $card('Stock value', self::rwf((float) self::scalar('SELECT COALESCE(SUM(quantity * unit_cost), 0) FROM inventory_items WHERE deleted_at IS NULL')), 'across all warehouses', 'layers'),
-            ],
-            'finance' => [
-                $card('Monthly expenses', self::rwf($monthExpenses), self::scalar("SELECT COUNT(*) FROM expenses WHERE deleted_at IS NULL AND status <> 'rejected' AND expense_date >= ?", [$monthStart]) . ' claims', 'credit-card'),
-                $card('Pending approvals', (int) $pendingExpenses['n'], self::rwf((float) $pendingExpenses['total']), 'clock'),
-                $card('Fuel spend', self::rwf((float) self::scalar('SELECT COALESCE(SUM(litres * unit_price), 0) FROM fuel_records WHERE deleted_at IS NULL AND purchased_at >= ?', [$monthStart])), 'this month', 'droplet'),
-                $card('Cost per trip', self::costPerTripThisMonth($monthStart, $monthExpenses), 'this month', 'trending-down'),
-            ],
-            'management' => [
-                $card('Fleet utilization', self::percent($onTrip, $vehicles), "{$onTrip} of {$vehicles} vehicles on trip", 'truck'),
-                $card('Delivery completion', self::percent($delivered, $deliveries), "{$delivered} of {$deliveries} deliveries", 'check'),
-                $card('Monthly logistics cost', self::rwf($monthExpenses), "{$pendingExpenses['n']} pending approval", 'credit-card'),
-                $card('Open risks', $serviceDue + $lowStock + self::licencesExpiringCount(90), 'service, licences, stock', 'alert-triangle'),
-            ],
-            'workshop' => [
-                $card('Open job cards', (int) self::scalar("SELECT COUNT(*) FROM maintenance_orders WHERE deleted_at IS NULL AND status IN ('open','scheduled','in_progress')"), self::scalar("SELECT COUNT(*) FROM maintenance_orders WHERE deleted_at IS NULL AND status IN ('open','scheduled','in_progress') AND priority IN ('high','urgent')") . ' high or urgent', 'tool'),
-                $card('In the workshop', (int) self::scalar("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND status = 'maintenance'"), 'vehicles off the road', 'truck'),
-                $card('Due for service', $serviceDue, self::scalar('SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND next_service_date < ?', [$today]) . ' overdue', 'calendar'),
-                $card('Parts low in stock', $lowStock, 'at or below minimum', 'package'),
-            ],
-            'driver' => self::driverMetrics($userId),
-            default => [],
-        };
+        return [
+            $card('Open clearance files', (int) self::scalar("SELECT COUNT(*) FROM border_crossings WHERE deleted_at IS NULL AND status NOT IN ('released','rejected')" . $co), self::scalar("SELECT COUNT(*) FROM border_crossings WHERE deleted_at IS NULL AND status IN ('draft','documents_pending')" . $co) . ' still collecting papers', 'flag'),
+            $card('Papers to check', (int) self::scalar("SELECT COUNT(*) FROM border_documents d INNER JOIN border_crossings c ON c.id = d.crossing_id WHERE d.status = 'pending' AND d.document_file IS NOT NULL AND c.deleted_at IS NULL" . self::co('border_crossings', 'c.company_id')), 'uploaded, waiting for Verify', 'file-text'),
+            $card('At a border now', count(BorderCrossing::atTheBorder()), 'trucks waiting at a post', 'clock'),
+            $card('Released this week', (int) self::scalar('SELECT COUNT(*) FROM border_crossings WHERE deleted_at IS NULL AND released_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)' . $co), 'files closed', 'check-circle'),
+        ];
     }
 
     /** @return list<array{tone: string, title: string, text: string}> */
     public static function attention(string $role, ?int $userId): array
     {
-        $today = date('Y-m-d');
-        $plural = static fn (int $n, string $one, string $many): string => $n . ' ' . ($n === 1 ? $one : $many);
-        $items = [
-            'service' => static function () use ($today, $plural): array {
-                $n = (int) self::scalar('SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND next_service_date IS NOT NULL AND next_service_date <= DATE_ADD(?, INTERVAL 14 DAY)', [$today]);
-                return ['Vehicles due for service', $n, $plural($n, 'vehicle is', 'vehicles are') . ' due or overdue for service within 14 days.'];
-            },
-            'licences' => static function () use ($plural): array {
-                $n = self::licencesExpiringCount(90);
-                return ['Licences expiring soon', $n, $plural($n, 'driver licence expires', 'driver licences expire') . ' within 90 days.'];
-            },
-            'stock' => static function () use ($plural): array {
-                $n = (int) self::scalar('SELECT COUNT(*) FROM inventory_items WHERE deleted_at IS NULL AND quantity <= minimum_level');
-                return ['Low stock items', $n, $plural($n, 'item is', 'items are') . ' at or below the minimum level.'];
-            },
-            'approvals' => static function (): array {
-                $r = self::row("SELECT COUNT(*) n, COALESCE(SUM(amount), 0) total FROM expenses WHERE deleted_at IS NULL AND status = 'pending'");
-                return ['Expenses awaiting approval', (int) $r['n'], $r['n'] . ' pending, worth ' . self::rwf((float) $r['total']) . '.'];
-            },
-            'purchases' => static function () use ($plural): array {
-                $n = (int) self::scalar("SELECT COUNT(*) FROM purchase_requests WHERE deleted_at IS NULL AND status IN ('draft','quotation')");
-                return ['Purchase requests in progress', $n, $plural($n, 'request is', 'requests are') . ' still in draft or quotation.'];
-            },
-            'work_orders' => static function () use ($plural): array {
-                $n = (int) self::scalar("SELECT COUNT(*) FROM maintenance_orders WHERE deleted_at IS NULL AND status IN ('open','scheduled','in_progress')");
-                return ['Open work orders', $n, $plural($n, 'work order is', 'work orders are') . ' open or in progress.'];
-            },
-        ];
-
         if ($role === 'driver') {
             return self::driverAttention($userId);
         }
 
+        $plural = static fn (int $n, string $one, string $many): string => $n . ' ' . ($n === 1 ? $one : $many);
+        $items = [
+            'service' => static function () use ($plural): array {
+                $n = self::serviceDueCount();
+                return ['Service due', $n, $plural($n, 'truck is', 'trucks are') . ' due for service or within the warning distance.'];
+            },
+            'documents' => static function () use ($plural): array {
+                $n = (int) self::scalar("SELECT COUNT(*) FROM vehicle_documents WHERE deleted_at IS NULL AND status <> 'cancelled' AND expires_on <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)" . self::co('vehicle_documents'))
+                    + (int) self::scalar("SELECT COUNT(*) FROM driver_documents WHERE deleted_at IS NULL AND status <> 'rejected' AND expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)" . self::co('driver_documents'));
+                return ['Documents expiring', $n, $plural($n, 'truck or driver document expires', 'truck and driver documents expire') . ' within 30 days, or already have.'];
+            },
+            'late' => static function () use ($plural): array {
+                $n = (int) self::scalar("SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND return_due_at < NOW() AND status IN ('at_turnaround','loading','on_road','offloading','returning')" . self::co('trips'));
+                return ['Trips past their time', $n, $plural($n, 'trip is', 'trips are') . ' past the expected return.'];
+            },
+            'signatures' => static function () use ($plural): array {
+                $n = RequestForms::inboxCount() + ManualJournals::inboxCount();
+                return ['Waiting for your signature', $n, $plural($n, 'request or journal waits', 'requests and journals wait') . ' for you on Approvals.'];
+            },
+            'fuel' => static function () use ($plural): array {
+                $n = (int) self::scalar('SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND fuel_flag IS NOT NULL AND closed_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)' . self::co('trips'));
+                return ['Fuel checks flagged', $n, $plural($n, 'closed trip used', 'closed trips used') . ' more or less fuel than normal in the last 30 days.'];
+            },
+            'stock' => static function () use ($plural): array {
+                $n = (int) self::scalar('SELECT COUNT(*) FROM inventory_items WHERE deleted_at IS NULL AND quantity <= minimum_level' . self::co('inventory_items'));
+                return ['Stock below minimum', $n, $plural($n, 'item is', 'items are') . ' at or below the minimum level.'];
+            },
+            'job_cards' => static function () use ($plural): array {
+                $n = (int) self::scalar("SELECT COUNT(*) FROM maintenance_orders WHERE deleted_at IS NULL AND status IN ('open','scheduled','in_progress')" . self::co('maintenance_orders'));
+                return ['Open job cards', $n, $plural($n, 'job card is', 'job cards are') . ' open or in progress.'];
+            },
+            'licences' => static function () use ($plural): array {
+                $n = (int) self::scalar("SELECT COUNT(*) FROM drivers WHERE deleted_at IS NULL AND status <> 'left' AND license_expiry IS NOT NULL AND license_expiry <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)" . self::co('drivers'));
+                return ['Driving licences expiring', $n, $plural($n, 'driving licence expires', 'driving licences expire') . ' within 90 days.'];
+            },
+        ];
+
         $keys = match ($role) {
-            'fleet_manager' => ['service', 'licences', 'work_orders'],
-            'warehouse_manager' => ['stock', 'purchases', 'work_orders'],
-            'workshop' => ['work_orders', 'service', 'stock'],
-            'finance' => ['approvals', 'purchases', 'stock'],
-            default => ['service', 'licences', 'approvals', 'stock'],
+            'management' => ['signatures', 'late', 'fuel'],
+            'logistics_manager' => ['late', 'documents', 'licences', 'service', 'fuel'],
+            'finance', 'cashier' => ['signatures', 'fuel'],
+            'warehouse_manager' => ['stock', 'job_cards', 'service'],
+            'super_admin' => ['documents', 'late'],
+            default => [],
         };
 
         return array_map(static function (string $key) use ($items): array {
@@ -164,20 +202,20 @@ final class ChartData
                 FROM trips t
                 LEFT JOIN vehicles v ON v.id = t.vehicle_id
                 LEFT JOIN drivers d ON d.id = t.driver_id
-                WHERE t.deleted_at IS NULL';
+                WHERE t.deleted_at IS NULL' . self::co('trips', 't.company_id');
         $params = [];
         if ($role === 'driver') {
             $sql .= ' AND d.user_id = ?';
             $params[] = $userId ?? 0;
         }
-        $sql .= ' ORDER BY t.departure_at DESC, t.id DESC LIMIT ' . (int) $limit;
+        $sql .= ' ORDER BY COALESCE(t.departure_at, t.planned_departure_at, t.created_at) DESC, t.id DESC LIMIT ' . (int) $limit;
 
         return array_map(static fn (array $r): array => [
-            'reference' => $r['reference_code'],
-            'route' => $r['pickup_location'] . ' - ' . $r['destination'],
+            'reference' => (string) $r['reference_code'],
+            'route' => trim($r['pickup_location'] . ' - ' . $r['destination'], ' -'),
             'vehicle' => $r['vehicle'],
             'driver' => $r['driver'],
-            'status' => self::label($r['status']),
+            'status' => TripLife::STATUS[$r['status']] ?? self::label((string) $r['status']),
         ], self::rows($sql, $params));
     }
 
@@ -185,27 +223,33 @@ final class ChartData
 
     private static function fleetStatus(int $span): array
     {
-        return self::donut('fleet-status', 'Fleet status', 'Vehicles by current status', $span, self::VEHICLE_STATUSES, self::countBy('vehicles', 'status'), 'vehicles');
+        return self::donut('fleet-status', 'Fleet status', 'Trucks by current status', $span, Fleet::VEHICLE_STATUS, self::countBy('vehicles', 'status'), 'trucks');
     }
 
     private static function tripsByStatus(int $span): array
     {
-        return self::bars('trips-status', 'Trips by status', 'All trips on record', $span, 'bar', self::TRIP_STATUSES, self::countBy('trips', 'status'), 'Trips');
+        $statuses = array_slice(TripLife::STATUS, 0, 10, true);
+
+        return self::bars('trips-status', 'Trips by status', 'Every trip on record', $span, 'bar', $statuses, self::countBy('trips', 'status'), 'Trips');
     }
 
-    private static function monthlyExpenses(int $span): array
+    private static function driverStatus(int $span): array
     {
-        $months = self::months();
-        $data = self::monthly("SELECT DATE_FORMAT(expense_date, '%Y-%m') m, SUM(amount) v FROM expenses WHERE deleted_at IS NULL AND status <> 'rejected' GROUP BY m", $months);
+        return self::donut('driver-status', 'Drivers', 'Drivers by status', $span, Fleet::DRIVER_STATUS, self::countBy('drivers', 'status'), 'drivers');
+    }
 
-        return self::timeChart('monthly-expenses', 'Monthly expenses', 'Approved and pending claims, last 6 months', $span, 'area', 'rwf', $months, [['Expenses', $data]]);
+    private static function requestPipeline(int $span): array
+    {
+        $counts = self::keyed2(self::rows('SELECT status k, COUNT(*) v FROM form_requests WHERE deleted_at IS NULL' . self::co('form_requests') . ' GROUP BY status'));
+
+        return self::bars('request-pipeline', 'Requests in the chain', 'Prepared → verified → authorized → paid', $span, 'bar', self::REQUEST_STEPS, $counts, 'Requests');
     }
 
     private static function auditActivity(int $span): array
     {
-        $rows = self::rows("SELECT entity_type, COUNT(*) n FROM audit_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND entity_type <> 'database' GROUP BY entity_type ORDER BY n DESC, entity_type LIMIT 6");
-        $chart = self::baseChart('audit-activity', 'System activity', 'Recorded actions by module, last 30 days', $span, 'bar', 'int');
-        $chart['categories'] = array_map(static fn (array $r): string => ucfirst($r['entity_type']), $rows);
+        $rows = self::rows("SELECT entity_type, COUNT(*) n FROM audit_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND entity_type <> 'database'" . self::co('audit_logs') . ' GROUP BY entity_type ORDER BY n DESC, entity_type LIMIT 6');
+        $chart = self::baseChart('audit-activity', 'System activity', 'Recorded actions by area, last 30 days', $span, 'bar', 'int');
+        $chart['categories'] = array_map(static fn (array $r): string => self::label((string) $r['entity_type']), $rows);
         $chart['series'] = [['name' => 'Actions', 'data' => array_map(static fn (array $r): int => (int) $r['n'], $rows)]];
         $chart['slots'] = [0];
 
@@ -215,74 +259,150 @@ final class ChartData
     private static function tripsWeekly(int $span, string $title, string $subtitle, ?int $driverId = null): array
     {
         $weeks = self::weeks();
-        $where = "status <> 'cancelled'" . ($driverId !== null ? ' AND driver_id = ' . (int) $driverId : '');
+        $where = "status <> 'cancelled'" . ($driverId !== null ? ' AND driver_id = ' . (int) $driverId : self::co('trips'));
         $data = self::keyed(self::rows("SELECT DATE_FORMAT(DATE_SUB(DATE(departure_at), INTERVAL WEEKDAY(departure_at) DAY), '%Y-%m-%d') k, COUNT(*) v FROM trips WHERE deleted_at IS NULL AND departure_at IS NOT NULL AND {$where} GROUP BY k"), array_keys($weeks));
-        $chart = self::timeChart($driverId !== null ? 'my-trips-weekly' : 'trips-weekly', $title, $subtitle, $span, 'column', 'int', $weeks, [['Trips', $data]]);
+
+        return self::timeChart($driverId !== null ? 'my-trips-weekly' : 'trips-weekly', $title, $subtitle, $span, 'column', 'int', $weeks, [['Trips', $data]]);
+    }
+
+    private static function tripsTrend(int $span): array
+    {
+        $months = self::months();
+        $departed = self::monthly("SELECT DATE_FORMAT(departure_at, '%Y-%m') m, COUNT(*) v FROM trips WHERE deleted_at IS NULL AND status <> 'cancelled' AND departure_at IS NOT NULL" . self::co('trips') . ' GROUP BY m', $months);
+        $closed = self::monthly("SELECT DATE_FORMAT(closed_at, '%Y-%m') m, COUNT(*) v FROM trips WHERE deleted_at IS NULL AND closed_at IS NOT NULL" . self::co('trips') . ' GROUP BY m', $months);
+
+        return self::timeChart('trips-trend', 'Trips per month', 'Departed and closed, last 6 months', $span, 'line', 'int', $months, [['Departed', $departed], ['Closed', $closed]]);
+    }
+
+    private static function fleetUtilization(int $span): array
+    {
+        $co = self::co('vehicles');
+        $total = (int) self::scalar("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND status <> 'inactive'" . $co);
+        $onTrip = (int) self::scalar("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND status IN ('" . implode("','", Fleet::ON_TRIP) . "')" . $co);
+
+        return self::meter('fleet-utilization', 'Fleet utilization', 'Share of trucks on a trip now', $span, $total === 0 ? 0.0 : $onTrip / $total * 100, 100, 'pct', 'accent', "{$onTrip} of {$total} trucks on a trip");
+    }
+
+    /** Money verified into the books, by form (F1 trip money, F2 fuel, F3 service...). */
+    private static function spendByForm(int $span): array
+    {
+        $rows = self::rows(
+            "SELECT r.form_code, t.form_name, SUM(r.total_amount) n FROM form_requests r INNER JOIN form_types t ON t.form_code = r.form_code
+              WHERE r.deleted_at IS NULL AND t.is_money = 1 AND r.form_code NOT IN ('F13') AND r.status IN ('verified','authorized','partly_paid','paid','closed')
+                AND r.verified_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')" . self::cur('r.currency') . self::co('form_requests', 'r.company_id') . '
+              GROUP BY r.form_code, t.form_name ORDER BY n DESC'
+        );
+        $chart = self::baseChart('spend-by-form', 'Spent this month', 'Verified requests by kind', $span, 'donut', 'rwf');
+        $chart['categories'] = array_map(static fn (array $r): string => $r['form_code'] . ' ' . $r['form_name'], $rows);
+        $chart['series'] = [['name' => 'Spent', 'data' => array_map(static fn (array $r): float => round((float) $r['n'], 2), $rows)]];
+        $chart['slots'] = $rows === [] ? [] : range(0, count($rows) - 1);
+        if ($rows === []) {
+            return ['id' => 'spend-by-form', 'type' => 'notice', 'span' => $span, 'title' => 'Spent this month', 'subtitle' => '', 'message' => 'Nothing verified this month in ' . self::$currency . '.'];
+        }
 
         return $chart;
     }
 
-    private static function deliveryCompletion(int $span): array
+    private static function spendTrend(int $span): array
     {
-        $total = (int) self::scalar('SELECT COUNT(*) FROM deliveries WHERE deleted_at IS NULL');
-        $done = (int) self::scalar("SELECT COUNT(*) FROM deliveries WHERE deleted_at IS NULL AND status = 'delivered'");
-        $failed = (int) self::scalar("SELECT COUNT(*) FROM deliveries WHERE deleted_at IS NULL AND status = 'failed'");
+        $months = self::months();
+        $base = "FROM form_requests r INNER JOIN form_types t ON t.form_code = r.form_code WHERE r.deleted_at IS NULL AND t.is_money = 1 AND r.form_code <> 'F13' AND r.verified_at IS NOT NULL AND r.status <> 'cancelled'" . self::cur('r.currency') . self::co('form_requests', 'r.company_id');
+        $trip = self::monthly("SELECT DATE_FORMAT(r.verified_at, '%Y-%m') m, SUM(r.total_amount) v {$base} AND r.form_code IN ('F1','F2','F10') GROUP BY m", $months);
+        $fleet = self::monthly("SELECT DATE_FORMAT(r.verified_at, '%Y-%m') m, SUM(r.total_amount) v {$base} AND r.form_code IN ('F3','F4','F5','F6','F7') GROUP BY m", $months);
+        $other = self::monthly("SELECT DATE_FORMAT(r.verified_at, '%Y-%m') m, SUM(r.total_amount) v {$base} AND r.form_code NOT IN ('F1','F2','F10','F3','F4','F5','F6','F7') GROUP BY m", $months);
 
-        return self::meter('delivery-completion', 'Delivery completion', 'Deliveries completed successfully', $span, $total === 0 ? 0.0 : $done / $total * 100, 100, 'pct', 'accent', "{$done} of {$total} deliveries delivered" . ($failed > 0 ? ", {$failed} failed" : ''));
+        return self::timeChart('spend-trend', 'Monthly spend', 'Verified requests: trips, trucks and other, last 6 months', $span, 'stacked', 'rwf', $months, [['Trips (F1, F2, F10)', $trip], ['Trucks (F3–F7)', $fleet], ['Other', $other]]);
     }
 
-    private static function requestPipeline(int $span): array
+    /** Income against cost in the books, per month, in the currency chosen. */
+    private static function incomeAndCost(int $span): array
     {
-        return self::bars('request-pipeline', 'Transport request pipeline', 'Requests by status', $span, 'bar', self::REQUEST_STATUSES, self::countBy('transport_requests', 'status'), 'Requests');
+        $months = self::months();
+        $base = "FROM gl_journal_lines l INNER JOIN gl_journal_entries e ON e.id = l.entry_id INNER JOIN gl_accounts a ON a.id = l.account_id
+                 WHERE e.deleted_at IS NULL AND e.status = 'posted'" . self::cur('e.currency') . self::co('gl_journal_entries', 'e.company_id');
+        $income = self::monthly("SELECT DATE_FORMAT(e.entry_date, '%Y-%m') m, SUM(l.credit - l.debit) v {$base} AND a.account_type = 'income' GROUP BY m", $months);
+        $cost = self::monthly("SELECT DATE_FORMAT(e.entry_date, '%Y-%m') m, SUM(l.debit - l.credit) v {$base} AND a.account_type IN ('expense','cost_of_sales') GROUP BY m", $months);
+
+        return self::timeChart('income-cost', 'Income and cost', 'From the books, last 6 months', $span, 'column', 'rwf', $months, [['Income', $income], ['Cost', $cost]]);
     }
 
-    private static function deliveriesByStatus(int $span, ?int $driverId = null): array
+    private static function paidTrend(int $span): array
     {
-        $counts = $driverId === null
-            ? self::countBy('deliveries', 'status')
-            : self::keyed2(self::rows('SELECT d.status k, COUNT(*) v FROM deliveries d INNER JOIN trips t ON t.id = d.trip_id WHERE d.deleted_at IS NULL AND t.deleted_at IS NULL AND t.driver_id = ? GROUP BY d.status', [$driverId]));
+        $months = self::months();
+        $base = "FROM payment_batch_lines l INNER JOIN payment_batches b ON b.id = l.batch_id WHERE l.status = 'paid' AND l.paid_at IS NOT NULL" . self::cur('l.currency') . self::co('payment_batches', 'b.company_id');
+        $momo = self::monthly("SELECT DATE_FORMAT(l.paid_at, '%Y-%m') m, SUM(l.amount) v {$base} AND b.method = 'momo' GROUP BY m", $months);
+        $cash = self::monthly("SELECT DATE_FORMAT(l.paid_at, '%Y-%m') m, SUM(l.amount) v {$base} AND b.method = 'cash' GROUP BY m", $months);
+        $bank = self::monthly("SELECT DATE_FORMAT(l.paid_at, '%Y-%m') m, SUM(l.amount) v {$base} AND b.method NOT IN ('momo','cash') GROUP BY m", $months);
 
-        return self::donut($driverId === null ? 'deliveries-status' : 'my-deliveries', $driverId === null ? 'Deliveries by status' : 'My deliveries', 'Proof-of-delivery workflow', $span, self::DELIVERY_STATUSES, $counts, 'deliveries', self::DELIVERY_SLOTS);
+        return self::timeChart('paid-trend', 'Paid out', 'By the Cashier, per month and method', $span, 'stacked', 'rwf', $months, [['Mobile money', $momo], ['Cash', $cash], ['Bank', $bank]]);
+    }
+
+    private static function paymentMethods(int $span): array
+    {
+        $rows = self::keyed2(self::rows("SELECT b.method k, COUNT(*) v FROM payment_batch_lines l INNER JOIN payment_batches b ON b.id = l.batch_id WHERE l.status = 'paid' AND l.paid_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)" . self::co('payment_batches', 'b.company_id') . ' GROUP BY b.method'));
+        $methods = ['momo' => 'Mobile money', 'cash' => 'Cash', 'bank' => 'Bank'];
+        foreach (array_keys($rows) as $method) {
+            $methods[$method] ??= self::label((string) $method);
+        }
+
+        return self::donut('payment-methods', 'Payments by method', 'Lines paid, last 30 days', $span, $methods, $rows, 'payments');
+    }
+
+    private static function billedAndCollected(int $span): array
+    {
+        $months = self::months();
+        $billed = self::monthly("SELECT DATE_FORMAT(issue_date, '%Y-%m') m, SUM(total_amount) v FROM invoices WHERE deleted_at IS NULL AND is_opening = 0 AND status NOT IN ('draft','cancelled')" . self::cur() . self::co('invoices') . ' GROUP BY m', $months);
+        $collected = self::monthly("SELECT DATE_FORMAT(p.paid_at, '%Y-%m') m, SUM(p.amount) v FROM payments p INNER JOIN invoices i ON i.id = p.invoice_id WHERE p.deleted_at IS NULL" . self::cur('i.currency') . self::co('invoices', 'i.company_id') . ' GROUP BY m', $months);
+
+        return self::timeChart('billed-collected', 'Billed and collected', 'Customer invoices and the money received, last 6 months', $span, 'column', 'rwf', $months, [['Billed', $billed], ['Collected', $collected]]);
     }
 
     private static function fuelTrend(int $span): array
     {
         $months = self::months();
-        $data = self::monthly("SELECT DATE_FORMAT(purchased_at, '%Y-%m') m, SUM(litres) v FROM fuel_records WHERE deleted_at IS NULL GROUP BY m", $months);
+        $data = self::monthly("SELECT DATE_FORMAT(COALESCE(delivered_at, created_at), '%Y-%m') m, SUM(COALESCE(litres_delivered, litres_ordered)) v FROM fuel_orders WHERE status <> 'cancelled'" . self::co('fuel_orders') . ' GROUP BY m', $months);
 
-        return self::timeChart('fuel-trend', 'Fuel purchased', 'Litres per month, last 6 months', $span, 'area', 'litres', $months, [['Litres', $data]]);
+        return self::timeChart('fuel-trend', 'Fuel', 'Litres given to trucks per month, last 6 months', $span, 'area', 'litres', $months, [['Litres', $data]]);
     }
 
     private static function fuelByVehicle(int $span): array
     {
-        $rows = self::rows('SELECT v.plate_number, SUM(f.litres) n FROM fuel_records f INNER JOIN vehicles v ON v.id = f.vehicle_id WHERE f.deleted_at IS NULL AND v.deleted_at IS NULL AND f.purchased_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) GROUP BY v.id, v.plate_number ORDER BY n DESC LIMIT 8');
+        $rows = self::rows("SELECT v.plate_number, SUM(COALESCE(f.litres_delivered, f.litres_ordered)) n FROM fuel_orders f INNER JOIN vehicles v ON v.id = f.vehicle_id WHERE f.status <> 'cancelled' AND COALESCE(f.delivered_at, f.created_at) >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)" . self::co('fuel_orders', 'f.company_id') . ' GROUP BY v.id, v.plate_number ORDER BY n DESC LIMIT 8');
 
-        return self::rankedBars('fuel-by-vehicle', 'Fuel by vehicle', 'Litres purchased, last 90 days (top 8)', $span, 'litres', $rows, 'plate_number', 'Litres');
+        return self::rankedBars('fuel-by-vehicle', 'Fuel by truck', 'Litres, last 90 days (top 8)', $span, 'litres', $rows, 'plate_number', 'Litres');
     }
 
-    private static function maintenanceCost(int $span): array
+    private static function jobCards(int $span): array
     {
-        $months = self::months();
-        $data = self::monthly("SELECT DATE_FORMAT(due_date, '%Y-%m') m, SUM(estimated_cost) v FROM maintenance_orders WHERE deleted_at IS NULL AND status <> 'cancelled' AND due_date IS NOT NULL GROUP BY m", $months);
+        return self::bars('job-cards', 'Job cards', 'Garage work by status', $span, 'column', self::JOB_STATUSES, self::countBy('maintenance_orders', 'status'), 'Job cards');
+    }
 
-        return self::timeChart('maintenance-cost', 'Maintenance cost', 'Work order cost by due month, last 6 months', $span, 'column', 'rwf', $months, [['Cost', $data]]);
+    private static function maintenanceCost(int $span): ?array
+    {
+        if (self::$currency !== self::currencyCode(null)) {
+            return null;   // job cards are costed in the company's own currency
+        }
+        $months = self::months();
+        $data = self::monthly("SELECT DATE_FORMAT(COALESCE(completed_at, due_date, created_at), '%Y-%m') m, SUM(COALESCE(actual_cost, estimated_cost)) v FROM maintenance_orders WHERE deleted_at IS NULL AND status <> 'cancelled'" . self::co('maintenance_orders') . ' GROUP BY m', $months);
+
+        return self::timeChart('maintenance-cost', 'Garage cost', 'Job card cost per month, last 6 months', $span, 'column', 'rwf', $months, [['Cost', $data]]);
     }
 
     private static function licenceExpiry(int $span): array
     {
         $today = date('Y-m-d');
         $row = self::row(
-            'SELECT
+            "SELECT
                 SUM(license_expiry < ?) expired,
                 SUM(license_expiry >= ? AND license_expiry <= DATE_ADD(?, INTERVAL 30 DAY)) d30,
                 SUM(license_expiry > DATE_ADD(?, INTERVAL 30 DAY) AND license_expiry <= DATE_ADD(?, INTERVAL 90 DAY)) d90,
                 SUM(license_expiry > DATE_ADD(?, INTERVAL 90 DAY)) later
-             FROM drivers WHERE deleted_at IS NULL AND license_expiry IS NOT NULL',
+             FROM drivers WHERE deleted_at IS NULL AND status <> 'left' AND license_expiry IS NOT NULL" . self::co('drivers'),
             array_fill(0, 6, $today)
         );
-        $chart = self::baseChart('licence-expiry', 'Driver licence expiry', 'Drivers by time left on their licence', $span, 'bar', 'int');
+        $chart = self::baseChart('licence-expiry', 'Driving licence expiry', 'Drivers by time left on their licence', $span, 'bar', 'int');
         $chart['categories'] = ['Expired', 'Within 30 days', '31 to 90 days', 'Over 90 days'];
-        $chart['series'] = [['name' => 'Drivers', 'data' => [(int) $row['expired'], (int) $row['d30'], (int) $row['d90'], (int) $row['later']]]];
+        $chart['series'] = [['name' => 'Drivers', 'data' => [(int) ($row['expired'] ?? 0), (int) ($row['d30'] ?? 0), (int) ($row['d90'] ?? 0), (int) ($row['later'] ?? 0)]]];
         $chart['slots'] = [0];
 
         return $chart;
@@ -290,7 +410,7 @@ final class ChartData
 
     private static function stockLevels(int $span): array
     {
-        $rows = self::rows('SELECT item_name, quantity, minimum_level FROM inventory_items WHERE deleted_at IS NULL ORDER BY quantity / GREATEST(minimum_level, 1) ASC, item_name LIMIT 8');
+        $rows = self::rows('SELECT item_name, quantity, minimum_level FROM inventory_items WHERE deleted_at IS NULL' . self::co('inventory_items') . ' ORDER BY quantity / GREATEST(minimum_level, 1) ASC, item_name LIMIT 8');
         $chart = self::baseChart('stock-levels', 'Stock against minimum level', 'Items closest to running out (lowest 8)', $span, 'bar', 'int');
         $chart['categories'] = array_column($rows, 'item_name');
         $chart['series'] = [
@@ -307,97 +427,14 @@ final class ChartData
         return self::donut('stock-status', 'Stock status', 'Items by stock status', $span, self::STOCK_STATUSES, self::countBy('inventory_items', 'status'), 'items');
     }
 
-    private static function stockValue(int $span): array
+    private static function stockValue(int $span): ?array
     {
-        $rows = self::rows('SELECT w.warehouse_name, SUM(i.quantity * i.unit_cost) n FROM inventory_items i INNER JOIN warehouses w ON w.id = i.warehouse_id WHERE i.deleted_at IS NULL GROUP BY w.id, w.warehouse_name ORDER BY n DESC');
-
-        return self::rankedBars('stock-value', 'Stock value by warehouse', 'Quantity on hand times unit cost', $span, 'rwf', $rows, 'warehouse_name', 'Stock value');
-    }
-
-    private static function purchaseStatus(int $span): array
-    {
-        return self::bars('purchase-status', 'Purchase requests', 'Requests by status', $span, 'column', self::PURCHASE_STATUSES, self::countBy('purchase_requests', 'status'), 'Requests');
-    }
-
-    private static function expensesByCategory(int $span): array
-    {
-        $totals = self::keyed2(self::rows("SELECT category k, SUM(amount) v FROM expenses WHERE deleted_at IS NULL AND status <> 'rejected' GROUP BY category"));
-        $chart = self::baseChart('expenses-category', 'Expenses by category', 'Approved and pending claims', $span, 'donut', 'rwf');
-        $chart['categories'] = self::EXPENSE_CATEGORIES;
-        $chart['series'] = [['name' => 'Expenses', 'data' => array_map(static fn (string $c): float => (float) ($totals[$c] ?? 0), self::EXPENSE_CATEGORIES)]];
-        $chart['slots'] = range(0, count(self::EXPENSE_CATEGORIES) - 1);
-
-        return $chart;
-    }
-
-    private static function expenseTrend(int $span): array
-    {
-        $months = self::months();
-        $data = self::monthly("SELECT DATE_FORMAT(expense_date, '%Y-%m') m, SUM(amount) v FROM expenses WHERE deleted_at IS NULL AND status <> 'rejected' GROUP BY m", $months);
-
-        return self::timeChart('expense-trend', 'Monthly spend', 'Approved and pending claims, last 6 months', $span, 'area', 'rwf', $months, [['Expenses', $data]]);
-    }
-
-    private static function expenseStatusByMonth(int $span): array
-    {
-        $months = self::months();
-        $series = [];
-        foreach (['approved' => 'Approved', 'pending' => 'Pending', 'rejected' => 'Rejected'] as $status => $label) {
-            $series[] = [$label, self::monthly("SELECT DATE_FORMAT(expense_date, '%Y-%m') m, SUM(amount) v FROM expenses WHERE deleted_at IS NULL AND status = '{$status}' GROUP BY m", $months)];
+        if (self::$currency !== self::currencyCode(null)) {
+            return null;   // stock is valued in the company's own currency
         }
+        $rows = self::rows('SELECT w.warehouse_name, SUM(i.quantity * i.unit_cost) n FROM inventory_items i INNER JOIN warehouses w ON w.id = i.warehouse_id WHERE i.deleted_at IS NULL' . self::co('inventory_items', 'i.company_id') . ' GROUP BY w.id, w.warehouse_name ORDER BY n DESC');
 
-        return self::timeChart('expense-status', 'Expense approvals', 'Claim value by approval status, last 6 months', $span, 'stacked', 'rwf', $months, $series);
-    }
-
-    private static function fuelCostByVehicle(int $span): array
-    {
-        $rows = self::rows('SELECT v.plate_number, SUM(f.litres * f.unit_price) n FROM fuel_records f INNER JOIN vehicles v ON v.id = f.vehicle_id WHERE f.deleted_at IS NULL AND v.deleted_at IS NULL AND f.purchased_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) GROUP BY v.id, v.plate_number ORDER BY n DESC LIMIT 8');
-
-        return self::rankedBars('fuel-cost-vehicle', 'Fuel cost by vehicle', 'Litres times unit price, last 90 days (top 8)', $span, 'rwf', $rows, 'plate_number', 'Fuel cost');
-    }
-
-    private static function procurementBySupplier(int $span): array
-    {
-        $rows = self::rows("SELECT s.supplier_name, SUM(p.amount) n FROM purchase_requests p INNER JOIN suppliers s ON s.id = p.supplier_id WHERE p.deleted_at IS NULL AND p.status <> 'rejected' GROUP BY s.id, s.supplier_name ORDER BY n DESC");
-
-        return self::rankedBars('procurement-supplier', 'Procurement by supplier', 'Purchase request value, excluding rejected', $span, 'rwf', $rows, 'supplier_name', 'Spend');
-    }
-
-    private static function fleetUtilization(int $span): array
-    {
-        $total = (int) self::scalar('SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL');
-        $onTrip = (int) self::scalar("SELECT COUNT(*) FROM vehicles WHERE deleted_at IS NULL AND status = 'on_trip'");
-
-        return self::meter('fleet-utilization', 'Fleet utilization', 'Share of vehicles currently on a trip', $span, $total === 0 ? 0.0 : $onTrip / $total * 100, 100, 'pct', 'accent', "{$onTrip} of {$total} vehicles on trip");
-    }
-
-    private static function tripsTrend(int $span): array
-    {
-        $months = self::months();
-        $data = self::monthly("SELECT DATE_FORMAT(departure_at, '%Y-%m') m, COUNT(*) v FROM trips WHERE deleted_at IS NULL AND status <> 'cancelled' AND departure_at IS NOT NULL GROUP BY m", $months);
-
-        return self::timeChart('trips-trend', 'Trips per month', 'Completed and active trips, last 6 months', $span, 'line', 'int', $months, [['Trips', $data]]);
-    }
-
-    private static function costTrend(int $span): array
-    {
-        $months = self::months();
-        $data = self::monthly("SELECT DATE_FORMAT(expense_date, '%Y-%m') m, SUM(amount) v FROM expenses WHERE deleted_at IS NULL AND status <> 'rejected' GROUP BY m", $months);
-
-        return self::timeChart('cost-trend', 'Logistics cost', 'Approved and pending claims per month', $span, 'area', 'rwf', $months, [['Cost', $data]]);
-    }
-
-    private static function costPerTrip(int $span): array
-    {
-        $months = self::months();
-        $cost = self::monthly("SELECT DATE_FORMAT(expense_date, '%Y-%m') m, SUM(amount) v FROM expenses WHERE deleted_at IS NULL AND status <> 'rejected' GROUP BY m", $months);
-        $trips = self::monthly("SELECT DATE_FORMAT(departure_at, '%Y-%m') m, COUNT(*) v FROM trips WHERE deleted_at IS NULL AND status <> 'cancelled' AND departure_at IS NOT NULL GROUP BY m", $months);
-        $perTrip = [];
-        foreach (array_keys($cost) as $i) {
-            $perTrip[] = $trips[$i] > 0 ? round($cost[$i] / $trips[$i]) : null;
-        }
-
-        return self::timeChart('cost-per-trip', 'Cost per trip', 'Monthly claims divided by trips', $span, 'line', 'rwf', $months, [['Cost per trip', $perTrip]]);
+        return self::rankedBars('stock-value', 'Stock value by store', 'Quantity on hand times unit cost', $span, 'rwf', $rows, 'warehouse_name', 'Stock value');
     }
 
     private static function driverCharts(?int $userId): array
@@ -411,10 +448,9 @@ final class ChartData
         $counts = self::keyed2(self::rows('SELECT status k, COUNT(*) v FROM trips WHERE deleted_at IS NULL AND driver_id = ? GROUP BY status', [$driverId]));
 
         return [
-            self::donut('my-trips-status', 'My trips', 'Trips assigned to you by status', 4, self::TRIP_STATUSES, $counts, 'trips'),
+            self::donut('my-trips-status', 'My trips', 'Your trips by status', 4, array_slice(TripLife::STATUS, 0, 10, true), $counts, 'trips'),
             self::tripsWeekly(8, 'My trips per week', 'Your trips departing each week, last 8 weeks', $driverId),
-            self::deliveriesByStatus(6, $driverId),
-            self::licenceValidity(6, $driver['license_expiry']),
+            self::licenceValidity(12, $driver['license_expiry']),
         ];
     }
 
@@ -431,38 +467,42 @@ final class ChartData
         return self::meter('licence-validity', 'Licence validity', 'Days left on your driving licence (scale: one year)', $span, (float) max(0, min($days, 365)), 365, 'days', $tone, $caption);
     }
 
-    private static function driverMetrics(?int $userId): array
-    {
-        $driver = self::row('SELECT id, license_expiry FROM drivers WHERE deleted_at IS NULL AND user_id = ?', [$userId ?? 0]);
-        $driverId = (int) ($driver['id'] ?? 0);
-        $card = static fn (string $label, string|int $value, string $caption, string $icon): array => ['label' => $label, 'value' => (string) $value, 'trend' => $caption, 'icon' => $icon];
-        $days = isset($driver['license_expiry']) ? (int) floor((strtotime($driver['license_expiry']) - strtotime(date('Y-m-d'))) / 86400) : null;
-
-        return [
-            $card('Assigned trips', (int) self::scalar("SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND driver_id = ? AND status IN ('requested','approved','loading','in_transit')", [$driverId]), self::scalar('SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND driver_id = ? AND DATE(departure_at) = CURDATE()', [$driverId]) . ' today', 'navigation'),
-            $card('Deliveries pending', (int) self::scalar("SELECT COUNT(*) FROM deliveries d INNER JOIN trips t ON t.id = d.trip_id WHERE d.deleted_at IS NULL AND t.driver_id = ? AND d.status IN ('loading','in_transit')", [$driverId]), self::scalar("SELECT COUNT(*) FROM deliveries d INNER JOIN trips t ON t.id = d.trip_id WHERE d.deleted_at IS NULL AND t.driver_id = ? AND d.status = 'in_transit'", [$driverId]) . ' in transit', 'package'),
-            $card('Completed trips', (int) self::scalar("SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND driver_id = ? AND status = 'delivered'", [$driverId]), self::scalar("SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND driver_id = ? AND status = 'delivered' AND departure_at >= ?", [$driverId, date('Y-m-01')]) . ' this month', 'check'),
-            $card('Licence valid for', $days === null ? 'n/a' : ($days < 0 ? 'Expired' : $days . ' days'), $driver['license_expiry'] ?? 'No expiry date recorded', 'shield'),
-        ];
-    }
-
     /** @return list<array{tone: string, title: string, text: string}> */
     private static function driverAttention(?int $userId): array
     {
         $driver = self::row('SELECT id, license_expiry FROM drivers WHERE deleted_at IS NULL AND user_id = ?', [$userId ?? 0]);
         if ($driver === null) {
-            return [['tone' => 'warning', 'title' => 'No driver profile', 'text' => 'Ask an administrator to link your login to a driver profile.']];
+            return [['tone' => 'warning', 'title' => 'No driver profile', 'text' => 'Ask the Operational Manager to link your login to a driver profile.']];
         }
 
-        $active = (int) self::scalar("SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND driver_id = ? AND status IN ('loading','in_transit')", [$driver['id']]);
-        $proof = (int) self::scalar("SELECT COUNT(*) FROM deliveries d INNER JOIN trips t ON t.id = d.trip_id WHERE d.deleted_at IS NULL AND t.driver_id = ? AND d.status = 'delivered' AND d.proof_file IS NULL", [$driver['id']]);
+        $active = (int) self::scalar("SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND driver_id = ? AND status IN ('" . implode("','", array_diff(TripLife::ACTIVE, ['planned'])) . "')", [$driver['id']]);
         $days = $driver['license_expiry'] !== null ? (int) floor((strtotime($driver['license_expiry']) - strtotime(date('Y-m-d'))) / 86400) : null;
 
         return [
-            ['tone' => $active > 0 ? 'primary' : 'success', 'title' => 'Trips in progress', 'text' => $active > 0 ? "You have {$active} trip(s) loading or on the road." : 'No trips in progress right now.'],
-            ['tone' => $proof > 0 ? 'warning' : 'success', 'title' => 'Proof of delivery', 'text' => $proof > 0 ? "{$proof} delivered trip(s) still need proof uploaded." : 'All your deliveries have proof attached.'],
+            ['tone' => $active > 0 ? 'primary' : 'success', 'title' => 'Trip in progress', 'text' => $active > 0 ? 'You have a trip in progress. Use the app buttons as you go.' : 'No trip in progress right now.'],
             ['tone' => $days !== null && $days <= 90 ? 'warning' : 'success', 'title' => 'Driving licence', 'text' => $days === null ? 'No expiry date recorded.' : ($days < 0 ? 'Your licence has expired.' : "Your licence expires in {$days} days.")],
         ];
+    }
+
+    private static function clearanceStages(int $span): array
+    {
+        $chart = self::baseChart('clearance-stages', 'Clearance files by stage', 'Open files, from papers to release', $span, 'bar', 'int');
+        $counts = [];
+        foreach (Clearance::board() as $stage) {
+            $counts[$stage['label']] = count($stage['files']);
+        }
+        $chart['categories'] = array_keys($counts);
+        $chart['series'] = [['name' => 'Files', 'data' => array_values($counts)]];
+        $chart['slots'] = [0];
+
+        return $chart;
+    }
+
+    private static function borderDwell(int $span): array
+    {
+        $rows = array_map(static fn (array $r): array => ['post_name' => $r['post_name'], 'n' => (float) $r['avg_hours']], BorderCrossing::dwellByPost());
+
+        return self::rankedBars('border-dwell', 'Hours at each border', 'Average from arrival to departure, last 90 days', $span, 'int', $rows, 'post_name', 'Hours');
     }
 
     // ---- chart builders -------------------------------------------------------------------------
@@ -478,7 +518,7 @@ final class ChartData
         $chart = self::baseChart($id, $title, $subtitle, $span, 'donut', 'int');
         $chart['unit'] = $unit;
         $chart['categories'] = array_values($statuses);
-        $chart['series'] = [['name' => ucfirst($unit), 'data' => array_map(static fn (string $key): int => (int) ($counts[$key] ?? 0), array_keys($statuses))]];
+        $chart['series'] = [['name' => ucfirst($unit), 'data' => array_map(static fn (string|int $key): int => (int) ($counts[$key] ?? 0), array_keys($statuses))]];
         $chart['slots'] = $slots ?? range(0, count($statuses) - 1);
 
         return $chart;
@@ -488,7 +528,7 @@ final class ChartData
     {
         $chart = self::baseChart($id, $title, $subtitle, $span, $type, 'int');
         $chart['categories'] = array_values($statuses);
-        $chart['series'] = [['name' => $seriesName, 'data' => array_map(static fn (string $key): int => (int) ($counts[$key] ?? 0), array_keys($statuses))]];
+        $chart['series'] = [['name' => $seriesName, 'data' => array_map(static fn (string|int $key): int => (int) ($counts[$key] ?? 0), array_keys($statuses))]];
         $chart['slots'] = [0];
 
         return $chart;
@@ -577,46 +617,27 @@ final class ChartData
         return $out;
     }
 
-    /** Counts rows per enum value for a whitelisted table/column pair. @return array<string, int> */
+    /** Counts rows per status for a whitelisted table, in the company in view. @return array<string, int> */
     private static function countBy(string $table, string $column): array
     {
-        $allowed = ['vehicles' => 'status', 'trips' => 'status', 'transport_requests' => 'status', 'deliveries' => 'status', 'inventory_items' => 'status', 'purchase_requests' => 'status'];
+        $allowed = ['vehicles' => 'status', 'trips' => 'status', 'drivers' => 'status', 'inventory_items' => 'status', 'maintenance_orders' => 'status'];
         if (($allowed[$table] ?? null) !== $column) {
             throw new \InvalidArgumentException('Unsupported count target.');
         }
 
-        return self::keyed2(self::rows("SELECT {$column} k, COUNT(*) v FROM {$table} GROUP BY {$column}"));
+        return self::keyed2(self::rows("SELECT {$column} k, COUNT(*) v FROM {$table} WHERE deleted_at IS NULL" . self::co($table) . " GROUP BY {$column}"));
     }
 
-    private static function licencesExpiringCount(int $days): int
+    private static function serviceDueCount(): int
     {
-        return (int) self::scalar('SELECT COUNT(*) FROM drivers WHERE deleted_at IS NULL AND license_expiry IS NOT NULL AND license_expiry <= DATE_ADD(?, INTERVAL ? DAY)', [date('Y-m-d'), $days]);
-    }
+        $count = 0;
+        foreach (self::rows("SELECT * FROM vehicles WHERE deleted_at IS NULL AND status <> 'inactive'" . self::co('vehicles')) as $vehicle) {
+            if (Fleet::serviceState($vehicle)['state'] !== 'ok') {
+                $count++;
+            }
+        }
 
-    private static function costPerTripThisMonth(string $monthStart, float $monthExpenses): string
-    {
-        $trips = (int) self::scalar("SELECT COUNT(*) FROM trips WHERE deleted_at IS NULL AND status <> 'cancelled' AND departure_at >= ?", [$monthStart]);
-
-        return $trips === 0 ? 'n/a' : self::rwf($monthExpenses / $trips);
-    }
-
-    private static function percent(int $part, int $whole): string
-    {
-        return $whole === 0 ? '0%' : round($part / $whole * 100) . '%';
-    }
-
-    private static function rwf(float $amount): string
-    {
-        return 'RWF ' . match (true) {
-            $amount >= 1_000_000 => rtrim(rtrim(number_format($amount / 1_000_000, 1), '0'), '.') . 'M',
-            $amount >= 1_000 => rtrim(rtrim(number_format($amount / 1_000, 1), '0'), '.') . 'K',
-            default => number_format($amount),
-        };
-    }
-
-    private static function number(float $value): string
-    {
-        return number_format($value);
+        return $count;
     }
 
     private static function label(string $value): string

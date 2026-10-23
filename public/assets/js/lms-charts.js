@@ -11,6 +11,8 @@
   if (!dataElement || !root || typeof ApexCharts === 'undefined') { return; }
 
   var definitions = JSON.parse(dataElement.textContent);
+  // Money charts are drawn in one currency at a time: the one chosen on the dashboard.
+  var moneyCode = root.getAttribute('data-currency') || 'RWF';
   var style = getComputedStyle(root);
   var token = function (name) { return style.getPropertyValue(name).trim(); };
   var palette = [1, 2, 3, 4, 5, 6, 7, 8].map(function (n) { return token('--viz-s' + n); });
@@ -35,7 +37,7 @@
   function format(kind, n, short) {
     if (n === null || n === undefined || isNaN(n)) { return '-'; }
     switch (kind) {
-      case 'rwf': return 'RWF ' + (short ? compact(n) : whole(Math.round(n)));
+      case 'rwf': return moneyCode + ' ' + (short ? compact(n) : whole(Math.round(n)));
       case 'litres': return (short ? compact(n) : whole(n)) + ' L';
       case 'pct': return Math.round(n) + '%';
       case 'days': return Math.round(n) + ' days';
@@ -289,7 +291,7 @@
     var card = root.querySelector('[data-chart-id="' + def.id + '"]');
     if (!card) { return; }
     var subtitle = card.querySelector('.lms-chart-head p');
-    if (def.format === 'rwf' && subtitle && def.type !== 'meter') { subtitle.textContent += ' (RWF)'; }
+    if (def.format === 'rwf' && subtitle && def.type !== 'meter') { subtitle.textContent += ' (' + moneyCode + ')'; }
     var body = card.querySelector('.lms-chart-body');
     var toggle = card.querySelector('.lms-chart-toggle');
 

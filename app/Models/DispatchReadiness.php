@@ -31,6 +31,8 @@ final class DispatchReadiness
         'truck' => 'Truck',
         'driver' => 'Driver',
         'route' => 'Route and plan',
+        'clearance' => 'Customs clearance',
+        'release' => 'Approvals',
     ];
 
     /** The truck papers every trip needs, and the ones a border crossing adds. */
@@ -358,6 +360,19 @@ final class DispatchReadiness
         } else {
             $borders = array_column(array_filter($list, static fn (array $s): bool => $s['stop_type'] === 'checkpoint'), 'location_name');
             $add('route', 'Stops', 'ok', sprintf('%d stop%s%s', count($list), count($list) === 1 ? '' : 's', $borders !== [] ? ', borders: ' . implode(', ', $borders) : ''), $tripLink + ['facts' => $stopFacts]);
+        }
+
+        // -------------------------------------------------------- clearance
+        // Every border on the route lodged before the truck leaves the yard.
+        foreach (Clearance::readiness((int) $trip['id']) as $clearance) {
+            $add('clearance', $clearance['label'], $clearance['state'], $clearance['detail'], $clearance['more']);
+        }
+
+        // ---------------------------------------------------------- release
+        if (Approvals::has('trips', 'approve') && in_array((string) $trip['status'], ['requested', 'approved', 'loading'], true)) {
+            $waiting = Workflow::awaitingRelease($trip);
+            $add('release', 'Trip released', $waiting === null ? 'ok' : 'fail',
+                $waiting ?? 'Every department on the approval rules has signed.', $tripLink);
         }
 
         return self::result($trip, $items);

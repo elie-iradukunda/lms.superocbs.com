@@ -36,6 +36,21 @@ class UserRepository extends BaseModel
 
     public function findActiveByEmail(string $email): ?array
     {
+        // Drivers sign in with their phone number (specification, section 6).
+        $digits = preg_replace('/\D/', '', $email) ?? '';
+        if (!str_contains($email, '@') && strlen($digits) >= 9) {
+            return $this->fetchOne(
+                'SELECT users.*, roles.role_key, roles.role_name
+                 FROM users
+                 INNER JOIN roles ON roles.id = users.role_id
+                 WHERE users.status <> "inactive" AND users.deleted_at IS NULL
+                   AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(users.phone, " ", ""), "+", ""), "-", ""), "(", ""), 9) = RIGHT(?, 9)
+                 ORDER BY users.id
+                 LIMIT 1',
+                [$digits]
+            );
+        }
+
         return $this->fetchOne(
             'SELECT users.*, roles.role_key, roles.role_name
              FROM users

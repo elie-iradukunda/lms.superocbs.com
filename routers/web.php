@@ -3,6 +3,7 @@
 /** @var Core\Router $router */
 
 use Controllers\AccountController;
+use Controllers\ApprovalController;
 use Controllers\AuditController;
 use Controllers\BankController;
 use Controllers\BrandController;
@@ -18,23 +19,52 @@ use Controllers\LogisticsController;
 use Controllers\MailController;
 use Controllers\NotificationController;
 use Controllers\PermissionController;
+use Controllers\PortalController;
 use Controllers\ReportController;
 use Controllers\SettingsController;
+use Controllers\TrackingController;
 
 // ------------------------------------------------------------- public pages
 $router->get('/', [HomeController::class, 'index'], ['public' => true]);
 $router->add(['GET', 'POST'], '/login', [HomeController::class, 'login'], ['public' => true, 'csrf' => false]);
+$router->add(['GET', 'POST'], '/login/verify', [HomeController::class, 'verify'], ['public' => true, 'csrf' => false]);
 $router->get('/logout', [HomeController::class, 'logout'], ['public' => true]);
 $router->add(['GET', 'POST'], '/forgot-password', [HomeController::class, 'forgotPassword'], ['public' => true, 'csrf' => false]);
 $router->add(['GET', 'POST'], '/reset-password/{token}', [HomeController::class, 'resetPassword'], ['public' => true, 'csrf' => false]);
 $router->get('/brand/logo', [BrandController::class, 'logo'], ['public' => true]);
 
+// The customer's side: ask for transport, and follow a shipment.
+$router->add(['GET', 'POST'], '/request-transport', [PortalController::class, 'request'], ['public' => true]);
+$router->add(['GET', 'POST'], '/track', [PortalController::class, 'track'], ['public' => true]);
+$router->post('/track/upload', [PortalController::class, 'upload'], ['public' => true]);
+
 // ------------------------------------------------------------------ account
 $router->get('/dashboard', [DashboardController::class, 'index']);
-$router->get('/my-trips', [DriverController::class, 'myTrips'], ['permission' => 'dashboard']);
-$router->post('/my-trips/{id}/start', [DriverController::class, 'start'], ['permission' => 'dashboard']);
-$router->post('/my-trips/{id}/stops/{stop}/arrive', [DriverController::class, 'arrive'], ['permission' => 'dashboard']);
-$router->post('/my-trips/{id}/stops/{stop}/leave', [DriverController::class, 'leave'], ['permission' => 'dashboard']);
+// The driver's app (section 16): five buttons.
+$router->get('/my-trips', [\Controllers\DriverAppController::class, 'home'], ['permission' => 'dashboard']);
+$router->get('/my-trips/ping', [\Controllers\DriverAppController::class, 'ping'], ['permission' => 'dashboard']);
+$router->get('/my-trips/trip', [\Controllers\DriverAppController::class, 'trip'], ['permission' => 'dashboard']);
+$router->post('/my-trips/trip/{id}/act/{action}', [\Controllers\DriverAppController::class, 'act'], ['permission' => 'dashboard']);
+$router->post('/my-trips/money/{line}/confirm', [\Controllers\DriverAppController::class, 'confirmMoney'], ['permission' => 'dashboard']);
+$router->get('/my-trips/delivery', [\Controllers\DriverAppController::class, 'delivery'], ['permission' => 'dashboard']);
+$router->post('/my-trips/delivery', [\Controllers\DriverAppController::class, 'storeDelivery'], ['permission' => 'dashboard']);
+$router->get('/my-trips/support', [\Controllers\DriverAppController::class, 'support'], ['permission' => 'dashboard']);
+$router->post('/my-trips/support', [\Controllers\DriverAppController::class, 'storeSupport'], ['permission' => 'dashboard']);
+$router->get('/my-trips/handover', [\Controllers\DriverAppController::class, 'handover'], ['permission' => 'dashboard']);
+$router->post('/my-trips/handover', [\Controllers\DriverAppController::class, 'storeHandover'], ['permission' => 'dashboard']);
+$router->get('/my-trips/profile', [\Controllers\DriverAppController::class, 'profile'], ['permission' => 'dashboard']);
+$router->post('/my-trips/profile/momo', [\Controllers\DriverAppController::class, 'changeMomo'], ['permission' => 'dashboard']);
+$router->post('/my-trips/profile/pin', [\Controllers\DriverAppController::class, 'setPin'], ['permission' => 'dashboard']);
+$router->post('/my-trips/shortage/{id}/explain', [\Controllers\DriverAppController::class, 'explainShortage'], ['permission' => 'dashboard']);
+$router->post('/my-trips/{id}/position', [DriverController::class, 'position'], ['permission' => 'dashboard']);
+
+// ---------------------------------------------------------------- approvals
+$router->get('/approvals', [ApprovalController::class, 'index'], ['permission' => 'dashboard']);
+
+// --------------------------------------------------------------- tracking
+$router->get('/tracking', [TrackingController::class, 'index'], ['permission' => 'tracking']);
+$router->get('/tracking/positions', [TrackingController::class, 'positions'], ['permission' => 'tracking']);
+$router->get('/trips/{id}/trail', [TrackingController::class, 'trail'], ['permission' => 'trips']);
 $router->get('/account', [AccountController::class, 'profile'], ['permission' => 'dashboard']);
 $router->post('/account', [AccountController::class, 'updateProfile'], ['permission' => 'dashboard']);
 $router->post('/account/signature', [AccountController::class, 'saveSignature'], ['permission' => 'dashboard']);
@@ -42,6 +72,8 @@ $router->get('/account/password', [AccountController::class, 'password'], ['perm
 $router->post('/account/password', [AccountController::class, 'updatePassword'], ['permission' => 'dashboard']);
 
 // ------------------------------------------------------------ notifications
+$router->get('/notifications', [NotificationController::class, 'index'], ['permission' => 'dashboard']);
+$router->get('/notifications/feed', [NotificationController::class, 'feed'], ['permission' => 'dashboard']);
 $router->post('/notifications/read', [NotificationController::class, 'read'], ['permission' => 'dashboard']);
 $router->post('/notifications/read-all', [NotificationController::class, 'readAll'], ['permission' => 'dashboard']);
 
@@ -76,6 +108,8 @@ $router->post('/books/sync', [BooksController::class, 'sync'], ['permission' => 
 $router->get('/journal', [JournalController::class, 'index'], ['permission' => 'journal']);
 $router->get('/journal/create', [JournalController::class, 'create'], ['permission' => 'journal', 'ability' => 'create']);
 $router->post('/journal', [JournalController::class, 'store'], ['permission' => 'journal', 'ability' => 'create']);
+$router->get('/journal/drafts/{id}', [JournalController::class, 'draft'], ['permission' => 'journal']);
+$router->post('/journal/drafts/{id}/{action}', [JournalController::class, 'act'], ['permission' => 'journal']);
 $router->get('/journal/{id}', [JournalController::class, 'show'], ['permission' => 'journal']);
 $router->post('/journal/{id}/reverse', [JournalController::class, 'reverse'], ['permission' => 'journal', 'ability' => 'approve']);
 
@@ -106,9 +140,6 @@ $router->get('/crossings/{id}/agent-email', [OperationsController::class, 'compo
 $router->post('/crossings/{id}/agent-email', [OperationsController::class, 'sendAgent'], ['permission' => 'crossings', 'ability' => 'edit']);
 $router->get('/invoices/{id}/print', [OperationsController::class, 'invoicePrint'], ['permission' => 'invoices']);
 $router->post('/invoices/{id}/disbursements', [OperationsController::class, 'invoiceDisbursements'], ['permission' => 'invoices', 'ability' => 'edit']);
-$router->get('/storage_lots/{id}/grn', [OperationsController::class, 'storageGrn'], ['permission' => 'storage_lots']);
-$router->post('/storage_lots/{id}/bill', [OperationsController::class, 'billStorage'], ['permission' => 'invoices', 'ability' => 'create']);
-$router->get('/storage_releases/{id}/pass', [OperationsController::class, 'storagePass'], ['permission' => 'storage_releases']);
 $router->post('/trips/{id}/handover', [OperationsController::class, 'handOver'], ['permission' => 'trips', 'ability' => 'edit']);
 $router->post('/journeys/{id}/invoice', [OperationsController::class, 'invoiceJourney'], ['permission' => 'invoices', 'ability' => 'create']);
 $router->post('/containers/{id}/recharge', [OperationsController::class, 'rechargeContainer'], ['permission' => 'disbursements', 'ability' => 'create']);
@@ -121,6 +152,82 @@ $router->get('/price_offers/{id}/lpo-email', [OperationsController::class, 'comp
 $router->post('/price_offers/{id}/lpo-email', [OperationsController::class, 'sendLpo'], ['permission' => 'price_offers', 'ability' => 'approve']);
 $router->post('/report_emails/{id}/send', [OperationsController::class, 'sendReport'], ['permission' => 'report_emails', 'ability' => 'edit']);
 
+// ------------------------------------------------- requests F1-F15 (section 8)
+$router->get('/form_requests', [\Controllers\RequestController::class, 'index'], ['permission' => 'form_requests']);
+$router->get('/form_requests/create', [\Controllers\RequestController::class, 'create'], ['permission' => 'form_requests', 'ability' => 'create']);
+$router->post('/form_requests', [\Controllers\RequestController::class, 'store'], ['permission' => 'form_requests', 'ability' => 'create']);
+$router->get('/form_requests/{id}', [\Controllers\RequestController::class, 'show'], ['permission' => 'form_requests']);
+$router->get('/form_requests/{id}/edit', [\Controllers\RequestController::class, 'edit'], ['permission' => 'form_requests', 'ability' => 'create']);
+$router->get('/form_requests/{id}/pdf', [\Controllers\RequestController::class, 'pdf'], ['permission' => 'form_requests']);
+$router->post('/form_requests/{id}', [\Controllers\RequestController::class, 'update'], ['permission' => 'form_requests', 'ability' => 'create']);
+// Who may sign is decided by the approver settings, not by a page permission.
+$router->post('/form_requests/{id}/act/{action}', [\Controllers\RequestController::class, 'act'], ['permission' => 'form_requests']);
+
+// ----------------------------------------------------------- trips (section 7)
+$router->get('/trip_planner', [\Controllers\TripPlannerController::class, 'planner'], ['permission' => 'trip_planner', 'ability' => 'create']);
+$router->post('/trip_planner', [\Controllers\TripPlannerController::class, 'store'], ['permission' => 'trip_planner', 'ability' => 'create']);
+$router->post('/trip_planner/check', [\Controllers\TripPlannerController::class, 'check'], ['permission' => 'trip_planner', 'ability' => 'create']);
+// "Create trip" on the list opens the planner; the trip page is the trip's own.
+$router->get('/trips/create', [\Controllers\TripPlannerController::class, 'planner'], ['permission' => 'trip_planner', 'ability' => 'create']);
+$router->get('/trips/{id}', [\Controllers\TripPlannerController::class, 'show'], ['permission' => 'trips']);
+$router->get('/trips/{id}/sheet', [\Controllers\TripPlannerController::class, 'sheet'], ['permission' => 'trips']);
+$router->post('/trips/{id}/act/{action}', [\Controllers\TripPlannerController::class, 'act'], ['permission' => 'trips', 'ability' => 'edit']);
+$router->post('/trips/{id}/report', [\Controllers\TripPlannerController::class, 'report'], ['permission' => 'trips', 'ability' => 'edit']);
+$router->post('/trips/{id}/replace', [\Controllers\TripPlannerController::class, 'replace'], ['permission' => 'trips', 'ability' => 'approve']);
+$router->post('/trips/{id}/cancel', [\Controllers\TripPlannerController::class, 'cancel'], ['permission' => 'trips', 'ability' => 'approve']);
+
+$router->get('/fuel_orders/{id}/confirm', [\Controllers\FuelOrderController::class, 'confirmForm'], ['permission' => 'fuel_orders', 'ability' => 'edit']);
+$router->post('/fuel_orders/{id}/confirm', [\Controllers\FuelOrderController::class, 'confirm'], ['permission' => 'fuel_orders', 'ability' => 'edit']);
+
+$router->get('/support_requests/{id}/decide', [\Controllers\SupportController::class, 'form'], ['permission' => 'support_requests']);
+$router->post('/support_requests/{id}/decide', [\Controllers\SupportController::class, 'decide'], ['permission' => 'support_requests']);
+
+// --------------------------------------------- opening balances (section 14)
+$router->get('/opening_balances', [\Controllers\OpeningController::class, 'index'], ['permission' => 'opening_balances']);
+$router->get('/opening_balances/template/{kind}', [\Controllers\OpeningController::class, 'template'], ['permission' => 'opening_balances']);
+$router->post('/opening_balances', [\Controllers\OpeningController::class, 'store'], ['permission' => 'opening_balances', 'ability' => 'create']);
+$router->post('/opening_balances/{id}/{action}', [\Controllers\OpeningController::class, 'act'], ['permission' => 'opening_balances']);
+
+// ----------------------------------------------------- payments (section 10)
+$router->get('/payment_batches', [\Controllers\PaymentController::class, 'index'], ['permission' => 'payment_batches']);
+$router->post('/payment_batches/build', [\Controllers\PaymentController::class, 'build'], ['permission' => 'payment_batches', 'ability' => 'create']);
+$router->get('/payment_batches/{id}', [\Controllers\PaymentController::class, 'show'], ['permission' => 'payment_batches']);
+$router->get('/payment_batches/{id}/mtn', [\Controllers\PaymentController::class, 'mtnFile'], ['permission' => 'payment_batches', 'ability' => 'create']);
+$router->post('/payment_batches/{id}/record', [\Controllers\PaymentController::class, 'record'], ['permission' => 'payment_batches', 'ability' => 'edit']);
+$router->post('/payment_batches/{id}/lines/{line}/cash', [\Controllers\PaymentController::class, 'payCash'], ['permission' => 'payment_batches', 'ability' => 'edit']);
+$router->get('/payment_batches/{id}/lines/{line}/receipt', [\Controllers\PaymentController::class, 'receipt'], ['permission' => 'payment_batches']);
+
+// ------------------------------------------- garage and store (section 12)
+$router->get('/garage', [\Controllers\GarageController::class, 'board'], ['permission' => 'garage']);
+$router->get('/garage/{id}', [\Controllers\GarageController::class, 'show'], ['permission' => 'garage']);
+$router->post('/garage/{id}/{action}', [\Controllers\GarageController::class, 'act'], ['permission' => 'garage', 'ability' => 'edit']);
+$router->get('/store_issues', [\Controllers\GarageController::class, 'issues'], ['permission' => 'store_issues']);
+$router->get('/store_issues/{id}', [\Controllers\GarageController::class, 'issue'], ['permission' => 'store_issues']);
+$router->post('/store_issues/{id}/{action}', [\Controllers\GarageController::class, 'issueAct'], ['permission' => 'store_issues', 'ability' => 'edit']);
+$router->get('/goods_receipts/{id}', [\Controllers\GarageController::class, 'receiveForm'], ['permission' => 'goods_receipts']);
+$router->post('/goods_receipts/{id}', [\Controllers\GarageController::class, 'receive'], ['permission' => 'goods_receipts', 'ability' => 'create']);
+$router->get('/stock_counts', [\Controllers\GarageController::class, 'counts'], ['permission' => 'stock_counts']);
+$router->post('/stock_counts', [\Controllers\GarageController::class, 'startCount'], ['permission' => 'stock_counts', 'ability' => 'create']);
+$router->get('/stock_counts/{id}', [\Controllers\GarageController::class, 'count'], ['permission' => 'stock_counts']);
+$router->post('/stock_counts/{id}/{action}', [\Controllers\GarageController::class, 'countAct'], ['permission' => 'stock_counts']);
+$router->get('/service_logs/{kind}', [\Controllers\GarageController::class, 'logsForm'], ['permission' => 'form_requests', 'ability' => 'create']);
+$router->post('/service_logs/{kind}', [\Controllers\GarageController::class, 'logsBuild'], ['permission' => 'form_requests', 'ability' => 'create']);
+
+// ------------------------------- invoicing and payroll (sections 6 and 13)
+$router->get('/billing', [\Controllers\BillingController::class, 'index'], ['permission' => 'billing']);
+$router->post('/billing', [\Controllers\BillingController::class, 'build'], ['permission' => 'billing', 'ability' => 'create']);
+$router->get('/payroll', [\Controllers\BillingController::class, 'payroll'], ['permission' => 'payroll']);
+$router->get('/payroll/export', [\Controllers\BillingController::class, 'payrollExport'], ['permission' => 'payroll']);
+$router->post('/payroll/close', [\Controllers\BillingController::class, 'payrollClose'], ['permission' => 'payroll', 'ability' => 'edit']);
+$router->get('/intercompany', [\Controllers\BillingController::class, 'intercompany'], ['permission' => 'intercompany']);
+
+// ------------------------------- customer and supplier portal (13, 18)
+$router->get('/portal', [\Controllers\AccountPortalController::class, 'index'], ['permission' => 'portal']);
+$router->get('/portal/documents/{id}/pdf', [\Controllers\AccountPortalController::class, 'pdf'], ['permission' => 'portal']);
+$router->get('/portal/documents/{id}/photo', [\Controllers\AccountPortalController::class, 'photo'], ['permission' => 'portal']);
+$router->post('/portal/orders/{id}/invoice', [\Controllers\AccountPortalController::class, 'invoice'], ['permission' => 'portal']);
+$router->post('/portal/orders/{id}/{answer}', [\Controllers\AccountPortalController::class, 'answer'], ['permission' => 'portal']);
+
 // ------------------------------------------------------- data imports
 $router->get('/accounts/import', [ImportController::class, 'accountsForm'], ['permission' => 'accounts', 'ability' => 'create']);
 $router->get('/accounts/import/template', [ImportController::class, 'accountsTemplate'], ['permission' => 'accounts', 'ability' => 'create']);
@@ -130,15 +237,16 @@ $router->post('/accounts/import', [ImportController::class, 'accountsImport'], [
 // Every module below is driven by Models\Schema: one controller, one set of
 // routes, and a permission check per ability.
 $modules = [
-    'vehicles', 'drivers', 'driver_documents', 'vehicle_documents', 'maintenance',
+    'vehicles', 'trailers', 'drivers', 'driver_documents', 'vehicle_documents', 'document_types', 'driver_momo_changes', 'gps_providers', 'maintenance',
     'requests', 'journeys', 'trips', 'shipments', 'deliveries', 'crossings', 'border_posts',
     'shipment_documents', 'pre_dispatch_checks', 'support_requests',
     'clearance_documents', 'clearance_inspections', 'clearance_payments', 'clearance_releases',
     'customers', 'rates', 'price_offers', 'invoices', 'payments',
     'fuel', 'expenses', 'supplier_bills', 'supplier_payments', 'disbursements', 'bank_statements',
-    'warehouses', 'warehouse', 'movements', 'procurement', 'suppliers', 'storage_lots', 'storage_releases', 'containers',
-    'users', 'accounts', 'payment_methods', 'cheques', 'cheque_books', 'budgets', 'currencies', 'lookups',
-    'report_emails',
+    'warehouses', 'warehouse', 'movements', 'procurement', 'suppliers', 'containers',
+    'routes', 'route_rates', 'service_rates', 'fuel_orders', 'vehicle_handovers', 'tyre_logs', 'crane_logs', 'shortage_rules', 'form_types', 'approval_step_settings', 'approval_delegations', 'ledger_mappings', 'whatsapp_outbox', 'currency_rates',
+    'companies', 'departments', 'users', 'accounts', 'payment_methods', 'cheques', 'cheque_books', 'budgets', 'currencies', 'lookups',
+    'report_emails', 'approval_policies', 'freight_jobs', 'cargo_claims',
 ];
 
 foreach ($modules as $module) {

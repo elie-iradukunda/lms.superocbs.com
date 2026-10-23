@@ -156,7 +156,11 @@ $tripCard = static function (array $trip, bool $live) use ($when, $badge, $docRo
               <div class="lms-mt-doc">
                 <div class="lms-mt-doc-name"><strong><a href="<?= url(['deliveries', $delivery['id']]) ?>"><?= e($delivery['delivery_code']) ?></a></strong><span><?= e($delivery['recipient_name']) ?> · <?= e($delivery['destination']) ?></span></div>
                 <div class="lms-mt-doc-actions"><?= $badge((string) $delivery['status']) ?>
-                  <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener" href="<?= url(['deliveries', $delivery['id'], 'note']) ?>"><i class="fe fe-printer fe-12 mr-1"></i>Delivery note</a></div>
+                  <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener" href="<?= url(['deliveries', $delivery['id'], 'note']) ?>"><i class="fe fe-printer fe-12 mr-1"></i>Delivery note</a>
+                  <?php if ($live && $trip['status'] === 'in_transit' && in_array((string) $delivery['status'], ['loading', 'in_transit', 'at_destination'], true)): ?>
+                    <button type="button" class="btn btn-sm btn-success" data-hand-over data-url="<?= url(['my-trips', $trip['id'], 'deliveries', $delivery['id'], 'hand-over']) ?>" data-code="<?= e($delivery['delivery_code']) ?>" data-receiver="<?= e($delivery['recipient_name']) ?>"><i class="fe fe-check-circle fe-12 mr-1"></i>Hand over</button>
+                  <?php endif; ?>
+                </div>
               </div>
             <?php endforeach; ?>
           </div>
@@ -175,6 +179,31 @@ $truckDocs = array_sum(array_map(static fn (array $t): int => count($t['document
       <p class="lms-page-sub">Everything you need on the road. Show the papers at the port, the weighbridge and the border straight from your phone.</p>
     </div>
   </div>
+
+  <?php
+  // The trip the phone reports its position for: the one on the road, or the
+  // one about to leave.
+  $tracked = null;
+  foreach ($active as $candidate) {
+      if (in_array((string) $candidate['status'], ['in_transit', 'loading', 'approved'], true) && !empty($candidate['vehicle_id'])) {
+          $tracked = $candidate;
+          if ($candidate['status'] === 'in_transit') {
+              break;
+          }
+      }
+  }
+  ?>
+  <?php if ($tracked !== null): ?>
+    <div class="card shadow-sm lms-mt-gps" data-gps data-url="<?= url(['my-trips', $tracked['id'], 'position']) ?>" data-token="<?= e(csrf_token()) ?>">
+      <div class="card-body d-flex align-items-center justify-content-between flex-wrap" style="gap:10px">
+        <div>
+          <strong><i class="fe fe-map-pin mr-1"></i>Share my location</strong>
+          <span class="d-block small text-muted" data-gps-status>The office sees where the truck is, and borders are recorded when you reach them. Keep this page open on the road.</span>
+        </div>
+        <button type="button" class="btn btn-lg btn-primary" data-gps-toggle><i class="fe fe-navigation fe-12 mr-1"></i>Turn on</button>
+      </div>
+    </div>
+  <?php endif; ?>
 
   <ul class="nav nav-pills lms-mt-tabs mb-3" role="tablist">
     <li class="nav-item"><a class="nav-link active" data-toggle="pill" href="#mt-now" role="tab"><i class="fe fe-navigation fe-12 mr-1"></i>On the road <span class="badge badge-light ml-1"><?= count($active) ?></span></a></li>
@@ -335,6 +364,138 @@ $truckDocs = array_sum(array_map(static fn (array $t): int => count($t['document
       });
     });
     form.addEventListener('submit', function () { document.getElementById('stopConfirmSubmit').disabled = true; });
+  });
+</script>
+<div class="modal fade" id="handOverModal" tabindex="-1" role="dialog" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+  <form method="post" id="handOverForm" enctype="multipart/form-data">
+    <?= csrf_field() ?>
+    <input type="hidden" name="signature" id="handOverSignature">
+    <input type="hidden" name="lat" id="handOverLat">
+    <input type="hidden" name="lng" id="handOverLng">
+    <div class="modal-header">
+      <div><small class="text-muted" id="handOverCode"></small><h5 class="modal-title">Hand over the goods</h5></div>
+      <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="handOverReceiver">Received by <span class="lms-required">*</span></label>
+        <input class="form-control form-control-lg" type="text" name="received_by" id="handOverReceiver" required maxlength="150">
+      </div>
+      <div class="form-group">
+        <label for="handOverPhoto">Photo of the signed delivery note or the goods</label>
+        <input class="form-control-file" type="file" name="photo" id="handOverPhoto" accept="image/*,application/pdf" capture="environment">
+      </div>
+      <div class="form-group mb-1">
+        <label class="d-flex justify-content-between"><span>Receiver signs here</span><a href="#" class="small" id="handOverClear">Clear</a></label>
+        <canvas class="lms-signature-pad" id="handOverPad" width="600" height="200"></canvas>
+      </div>
+      <p class="small text-muted mb-0"><i class="fe fe-info mr-1"></i>A photo or a signature is needed. The time and the place are recorded, and the customer is told.</p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-light" data-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-success btn-lg" id="handOverSubmit"><i class="fe fe-check fe-12 mr-1"></i>Delivered</button>
+    </div>
+  </form>
+</div></div></div>
+<script>
+  // Hand over: name, photo, a signature drawn with a finger, and where it happened.
+  document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('handOverForm');
+    var pad = document.getElementById('handOverPad');
+    if (!form || !pad) { return; }
+    var ctx = pad.getContext('2d');
+    var drawing = false, signed = false;
+    function point(e) {
+      var r = pad.getBoundingClientRect();
+      var t = e.touches ? e.touches[0] : e;
+      return { x: (t.clientX - r.left) * pad.width / r.width, y: (t.clientY - r.top) * pad.height / r.height };
+    }
+    function reset() { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, pad.width, pad.height); ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#111'; signed = false; }
+    function start(e) { e.preventDefault(); drawing = true; var p = point(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+    function move(e) { if (!drawing) { return; } e.preventDefault(); var p = point(e); ctx.lineTo(p.x, p.y); ctx.stroke(); signed = true; }
+    function end() { drawing = false; }
+    ['mousedown', 'touchstart'].forEach(function (n) { pad.addEventListener(n, start, { passive: false }); });
+    ['mousemove', 'touchmove'].forEach(function (n) { pad.addEventListener(n, move, { passive: false }); });
+    ['mouseup', 'mouseleave', 'touchend'].forEach(function (n) { pad.addEventListener(n, end); });
+    document.getElementById('handOverClear').addEventListener('click', function (e) { e.preventDefault(); reset(); });
+
+    document.querySelectorAll('[data-hand-over]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        form.reset(); reset();
+        form.setAttribute('action', button.getAttribute('data-url'));
+        document.getElementById('handOverCode').textContent = button.getAttribute('data-code');
+        document.getElementById('handOverReceiver').value = button.getAttribute('data-receiver') || '';
+        document.getElementById('handOverSubmit').disabled = false;
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(function (p) {
+            document.getElementById('handOverLat').value = p.coords.latitude;
+            document.getElementById('handOverLng').value = p.coords.longitude;
+          }, function () {}, { enableHighAccuracy: true, timeout: 10000 });
+        }
+        if (window.jQuery) { jQuery('#handOverModal').modal('show'); }
+      });
+    });
+    form.addEventListener('submit', function (e) {
+      var photo = document.getElementById('handOverPhoto');
+      if (!signed && (!photo.files || !photo.files.length)) {
+        e.preventDefault();
+        alert('Take a photo of the signed note, or let the receiver sign on the screen.');
+        return;
+      }
+      if (signed) { document.getElementById('handOverSignature').value = pad.toDataURL('image/png'); }
+      document.getElementById('handOverSubmit').disabled = true;
+    });
+  });
+</script>
+<script>
+  // Share my location: the phone sends where it is every few minutes while
+  // the page is open. The choice is remembered on this phone.
+  document.addEventListener('DOMContentLoaded', function () {
+    var box = document.querySelector('[data-gps]');
+    if (!box) { return; }
+    var toggle = box.querySelector('[data-gps-toggle]');
+    var status = box.querySelector('[data-gps-status]');
+    var watch = null, last = 0;
+    if (!navigator.geolocation) { status.textContent = 'This phone cannot share its location.'; toggle.hidden = true; return; }
+
+    function send(p) {
+      if (Date.now() - last < 120000) { return; }
+      last = Date.now();
+      var body = new FormData();
+      body.append('_token', box.getAttribute('data-token'));
+      body.append('lat', p.coords.latitude);
+      body.append('lng', p.coords.longitude);
+      if (p.coords.accuracy) { body.append('accuracy', p.coords.accuracy); }
+      if (p.coords.speed !== null && p.coords.speed !== undefined) { body.append('speed', p.coords.speed); }
+      if (p.coords.heading !== null && p.coords.heading !== undefined && !isNaN(p.coords.heading)) { body.append('heading', p.coords.heading); }
+      fetch(box.getAttribute('data-url'), { method: 'POST', body: body, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          status.textContent = 'Sharing. Last sent at ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + (d && d.message && d.message.indexOf('GPS') !== -1 ? ' · ' + d.message : '');
+          if (d && d.message && d.message.indexOf('GPS') !== -1) { setTimeout(function () { window.location.reload(); }, 1500); }
+        })
+        .catch(function () { status.textContent = 'No network right now. It will send again when the network is back.'; last = 0; });
+    }
+    function on() {
+      watch = navigator.geolocation.watchPosition(send, function (err) {
+        status.textContent = err.code === 1 ? 'Location is blocked. Allow location for this site in the phone settings.' : 'Looking for GPS signal…';
+      }, { enableHighAccuracy: true, maximumAge: 60000, timeout: 30000 });
+      toggle.innerHTML = '<i class="fe fe-pause fe-12 mr-1"></i>Stop';
+      toggle.classList.replace('btn-primary', 'btn-outline-secondary');
+      status.textContent = 'Starting…';
+      try { localStorage.setItem('lms-share-location', '1'); } catch (e) {}
+    }
+    function off() {
+      if (watch !== null) { navigator.geolocation.clearWatch(watch); watch = null; }
+      toggle.innerHTML = '<i class="fe fe-navigation fe-12 mr-1"></i>Turn on';
+      toggle.classList.replace('btn-outline-secondary', 'btn-primary');
+      status.textContent = 'Not sharing. The office cannot see the truck.';
+      try { localStorage.setItem('lms-share-location', '0'); } catch (e) {}
+    }
+    toggle.addEventListener('click', function () { watch === null ? on() : off(); });
+    var remembered = null;
+    try { remembered = localStorage.getItem('lms-share-location'); } catch (e) {}
+    if (remembered !== '0') { on(); }
   });
 </script>
 <script>

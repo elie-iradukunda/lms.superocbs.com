@@ -15,7 +15,6 @@ use Models\Payables;
 use Models\PriceOffer;
 use Models\ReportSchedule;
 use Models\Settings;
-use Models\Storage;
 use Models\Workflow;
 use Support\Mailer;
 use Support\Report;
@@ -164,77 +163,6 @@ final class OperationsController
         $this->redirect(\url(['invoices', $id]));
     }
 
-    /** The goods received note for a storage lot. */
-    public function storageGrn(array $params): void
-    {
-        $doc = $this->lotDocument((int) ($params['id'] ?? 0));
-        if ($doc === null) {
-            Flash::error('That storage lot does not exist.');
-            $this->redirect(\url('storage_lots'));
-        }
-
-        AuditLog::record('storage.grn_printed', 'storage_lots', (string) $doc['lot_code']);
-        \view('storage/document', ['kind' => 'grn', 'doc' => $doc, 'company' => $this->company()]);
-    }
-
-    /** The gate pass for one release from storage. */
-    public function storagePass(array $params): void
-    {
-        $id = (int) ($params['id'] ?? 0);
-        $statement = Database::connection()->prepare(
-            'SELECT r.*, r.id AS release_id, r.vehicle_plate AS release_plate, u.full_name AS authorised_name, t.reference_code AS trip_code
-               FROM storage_releases r
-               LEFT JOIN users u ON u.id = r.authorised_by
-               LEFT JOIN trips t ON t.id = r.trip_id
-              WHERE r.id = ? AND r.deleted_at IS NULL'
-        );
-        $statement->execute([$id]);
-        $release = $statement->fetch(\PDO::FETCH_ASSOC);
-        $lot = $release === false ? null : $this->lotDocument((int) $release['lot_id']);
-        if ($lot === null) {
-            Flash::error('That gate pass does not exist.');
-            $this->redirect(\url('storage_releases'));
-        }
-
-        // What was left in the bay once this pass had gone through.
-        $before = Database::connection()->prepare(
-            'SELECT COALESCE(SUM(quantity), 0) FROM storage_releases
-              WHERE lot_id = ? AND deleted_at IS NULL AND (released_at < ? OR (released_at = ? AND id <= ?))'
-        );
-        $before->execute([(int) $release['lot_id'], $release['released_at'], $release['released_at'], $id]);
-        $release['left_after'] = (float) $lot['quantity_received'] - (float) $before->fetchColumn();
-
-        AuditLog::record('storage.pass_printed', 'storage_releases', (string) $release['gate_pass_no']);
-        // The person who authorised the release signs the pass.
-        $signature = \Models\Signature::forUser($release['authorised_by'] !== null ? (int) $release['authorised_by'] : null);
-        \view('storage/document', ['kind' => 'pass', 'doc' => $release + $lot, 'company' => $this->company(), 'signature' => $signature]);
-    }
-
-    /** "Bill storage to date" on a lot: bills every lot of that customer. */
-    public function billStorage(array $params): void
-    {
-        $id = (int) ($params['id'] ?? 0);
-        $lot = Storage::lot($id);
-        if ($lot === null) {
-            Flash::error('That storage lot does not exist.');
-            $this->redirect(\url('storage_lots'));
-        }
-
-        try {
-            $result = Storage::bill((int) $lot['customer_id']);
-            if (!$result['ok']) {
-                Flash::error($result['message']);
-                $this->redirect(\url(['storage_lots', $id]));
-            }
-            Flash::success($result['message'] . ' Check and issue.');
-            $this->redirect(count($result['invoices']) === 1 ? \url(['invoices', $result['invoices'][0]]) : \url('invoices'));
-        } catch (\Throwable $exception) {
-            error_log('Storage billing failed: ' . $exception->getMessage());
-            Flash::error('The storage invoice could not be raised: ' . $exception->getMessage());
-            $this->redirect(\url(['storage_lots', $id]));
-        }
-    }
-
     /** "Recharge detention to customer" on a container. */
     public function rechargeContainer(array $params): void
     {
@@ -248,22 +176,6 @@ final class OperationsController
             Flash::error($exception->getMessage());
             $this->redirect(\url(['containers', $id]));
         }
-    }
-
-    private function lotDocument(int $lotId): ?array
-    {
-        $statement = Database::connection()->prepare(
-            'SELECT l.*, c.customer_name, c.tin_number, c.phone AS customer_phone, w.warehouse_name, s.shipment_code
-               FROM storage_lots l
-               INNER JOIN customers c ON c.id = l.customer_id
-               INNER JOIN warehouses w ON w.id = l.warehouse_id
-               LEFT JOIN shipments s ON s.id = l.shipment_id
-              WHERE l.id = ? AND l.deleted_at IS NULL'
-        );
-        $statement->execute([$lotId]);
-        $row = $statement->fetch(\PDO::FETCH_ASSOC);
-
-        return $row === false ? null : $row;
     }
 
     /** Name, details, colour and logo for a printed document. */

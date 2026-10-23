@@ -113,7 +113,7 @@ $closeGroup = static function (string $suffix): string {
     if ($field['type'] === 'date' && $value !== '') {
         $inputValue = substr((string) $value, 0, 10);
     }
-    $step = $field['type'] === 'number' ? '1' : ($field['type'] === 'money' ? '0.01' : '0.001');
+    $step = $field['step'] ?? ($field['type'] === 'number' ? '1' : ($field['type'] === 'money' ? '0.01' : '0.001'));
     ?>
     <?= $openGroup($suffix) ?>
     <input

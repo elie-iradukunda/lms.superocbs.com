@@ -7,13 +7,13 @@
     </div>
     <div class="lms-page-actions">
       <a class="btn btn-outline-secondary" href="<?= url('journal') ?>">Cancel</a>
-      <button class="btn btn-primary" type="submit" form="lms-journal-form"><i class="fe fe-save fe-12 mr-1"></i>Post entry</button>
+      <button class="btn btn-primary" type="submit" form="lms-journal-form"><i class="fe fe-send fe-12 mr-1"></i>Send for approval</button>
     </div>
   </div>
 
   <?php if ($errors !== []): ?>
     <div class="alert alert-danger lms-error-block">
-      <strong><i class="fe fe-alert-circle mr-2"></i><?= count($errors) ?> thing<?= count($errors) === 1 ? '' : 's' ?> need<?= count($errors) === 1 ? 's' : '' ?> fixing before this can be posted</strong>
+      <strong><i class="fe fe-alert-circle mr-2"></i><?= count($errors) ?> thing<?= count($errors) === 1 ? '' : 's' ?> need<?= count($errors) === 1 ? 's' : '' ?> fixing before this can be sent</strong>
       <ul class="mb-0 mt-2"><?php foreach ($errors as $message): ?><li><?= e($message) ?></li><?php endforeach; ?></ul>
     </div>
   <?php endif; ?>
@@ -27,13 +27,22 @@
         <div><h3><i class="fe fe-file-text fe-16 mr-2"></i>The entry</h3><p>The memo is what an auditor reads first, so say what happened, not just "adjustment".</p></div>
       </header>
       <div class="card-body">
+        <p class="text-muted small mb-3"><i class="fe fe-shield fe-12 mr-1"></i>A manual journal is verified by the Finance Manager and authorized by the MD before it reaches the books. Nobody signs their own.</p>
         <div class="row">
           <div class="col-md-3 form-group lms-field is-required">
             <label for="entry_date">Entry date <span class="lms-required">*</span></label>
             <input class="form-control" type="date" id="entry_date" name="entry_date" value="<?= e($entry['entry_date']) ?>" required>
             <small class="form-text text-muted">A closed period will refuse the posting.</small>
           </div>
-          <div class="col-md-6 form-group lms-field is-required">
+          <div class="col-md-2 form-group lms-field is-required">
+            <label for="currency">Currency <span class="lms-required">*</span></label>
+            <select class="form-control" id="currency" name="currency" required>
+              <?php foreach ($currencyOptions as $code => $label): ?>
+                <option value="<?= e($code) ?>" <?= ($entry['currency'] ?? '') === $code ? 'selected' : '' ?>><?= e($label) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-md-4 form-group lms-field is-required">
             <label for="memo">Memo <span class="lms-required">*</span></label>
             <input class="form-control" type="text" id="memo" name="memo" value="<?= e($entry['memo']) ?>" required placeholder="Accrue September workshop invoice not yet received">
           </div>

@@ -29,6 +29,28 @@ $pdfQuery = ['from' => $from ?: date('Y-01-01'), 'to' => $to ?: date('Y-m-d')] +
     <div class="alert alert-danger"><i class="fe fe-alert-octagon mr-2"></i><strong>The ledger does not balance.</strong> Total debits and credits differ across the posted entries.</div>
   <?php endif; ?>
 
+  <?php if (!empty($waiting)): ?>
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong><i class="fe fe-clock fe-12 mr-1"></i>Waiting to reach the books</strong> <span class="text-muted small">— verified by Finance, authorized by the MD</span></div>
+      <div class="table-responsive"><table class="table table-sm table-hover mb-0">
+        <thead><tr><th>Number</th><th>Date</th><th>Memo</th><th class="text-right">Amount</th><th>Prepared by</th><th>Status</th></tr></thead>
+        <tbody>
+          <?php foreach ($waiting as $draft): ?>
+            <?php [$label, $tone] = \Models\ManualJournals::STATUS[$draft['status']]; ?>
+            <tr>
+              <td><a href="<?= url(['journal', 'drafts', $draft['id']]) ?>"><?= e($draft['draft_no']) ?></a></td>
+              <td><?= e(human_date($draft['entry_date'])) ?></td>
+              <td><?= e($draft['memo']) ?></td>
+              <td class="text-right"><?= e(\Models\Currency::format((float) $draft['total'], (string) $draft['currency'])) ?></td>
+              <td><?= e($draft['prepared_name'] ?? '') ?></td>
+              <td><span class="badge badge-<?= e($tone) ?>"><?= e($label) ?></span></td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table></div>
+    </div>
+  <?php endif; ?>
+
   <div class="card shadow-sm">
     <div class="card-body">
       <form method="get" action="<?= url('journal') ?>" class="lms-filter-bar">

@@ -88,6 +88,24 @@
                   Password resets are always sent, because you cannot sign in to read the bell.
                 </small>
               </div>
+              <div class="col-md-4 form-group lms-field">
+                <label for="whatsapp_number">WhatsApp number</label>
+                <input class="form-control" type="tel" id="whatsapp_number" name="whatsapp_number" value="<?= e($user['whatsapp_number'] ?? '') ?>" placeholder="Blank: the phone above">
+              </div>
+              <div class="col-md-8 form-group lms-field">
+                <label>Also send me on WhatsApp</label>
+                <?php $myTopics = \Support\WhatsApp::topicsOf($user['whatsapp_topics'] ?? null, current_role()); ?>
+                <input type="hidden" name="whatsapp_topics_sent" value="1">
+                <div class="row">
+                  <?php foreach (\Support\WhatsApp::TOPICS as $topicKey => $topicLabel): ?>
+                    <div class="col-md-6"><div class="custom-control custom-checkbox">
+                      <input type="checkbox" class="custom-control-input" id="wa_<?= e($topicKey) ?>" name="whatsapp_topics[]" value="<?= e($topicKey) ?>" <?= in_array($topicKey, $myTopics, true) ? 'checked' : '' ?>>
+                      <label class="custom-control-label" for="wa_<?= e($topicKey) ?>"><?= e($topicLabel) ?></label>
+                    </div></div>
+                  <?php endforeach; ?>
+                </div>
+                <small class="form-text text-muted">A short message with a link, from the company's WhatsApp Business number. Everything still comes to the bell.</small>
+              </div>
             </div>
           </div>
         </div>

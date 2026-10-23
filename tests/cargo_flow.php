@@ -24,6 +24,10 @@ try {
     $accounts = (new Models\UserRepository())->activeLoginAccounts();
     test_sign_in($accounts['super_admin'], 'super_admin', 1);
 
+    // The money and the paperwork that follows a load from LPO to invoice; the
+    // document pack and clearance rules have a suite of their own (golive.php).
+    Models\Settings::put('document_pack_always', '0');
+
     $one = static function (string $sql, array $params = []) use ($pdo): mixed {
         $statement = $pdo->prepare($sql);
         $statement->execute($params);
@@ -93,6 +97,10 @@ try {
     $test->assert(in_array('Tick "Quantity verified" after checking it at the truck, before marking this shipment ready.', $errors, true), 'an incomplete pre-dispatch check is refused with a clear message');
 
     // ------------------------------------------------------------ dispatch
+    $unreleased = Models\Workflow::apply('trips', $tripId, 'dispatch');
+    $test->assert(!$unreleased['ok'] && str_contains($unreleased['message'], 'not released'), 'a trip leaves only once it is released: ' . $unreleased['message']);
+    $released = test_sign_all('trips', $tripId);
+    $test->assert($released['ok'], 'operations releases the trip: ' . $released['message']);
     $dispatch = Models\Workflow::apply('trips', $tripId, 'dispatch');
     $test->assert($dispatch['ok'], 'the trip dispatches: ' . $dispatch['message']);
     $test->same('on_trip', (string) $one('SELECT status FROM vehicles WHERE id = ?', [$vehicleId]), 'dispatch marks the truck on trip');

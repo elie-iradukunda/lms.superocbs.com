@@ -14,6 +14,55 @@ use Support\Mailer;
  */
 final class Notifier
 {
+    /** The company the next notifications are about, when it is not the signed-in person's. */
+    private static ?int $company = null;
+
+    /**
+     * Run $work with notifications addressed to one company's people: the
+     * company the record belongs to, which is not always the one the person
+     * acting works in (a sister-company request, a clock job with nobody signed in).
+     */
+    public static function forCompany(?int $companyId, callable $work): mixed
+    {
+        $previous = self::$company;
+        self::$company = $companyId;
+        try {
+            return $work();
+        } finally {
+            self::$company = $previous;
+        }
+    }
+
+    private static function companyId(): ?int
+    {
+        if (self::$company !== null) {
+            return self::$company;
+        }
+
+        return \is_logged_in() ? \current_company_id() : null;
+    }
+
+    /** Notify one person once for a given key (a reminder that must not repeat). */
+    public static function toUserOnce(string $key, ?int $userId, string $title, string $message, ?string $route = null, string $severity = 'info', ?string $entityType = null, ?string $entityId = null): void
+    {
+        if ($userId === null) {
+            return;
+        }
+        try {
+            $statement = Database::connection()->prepare(
+                'INSERT IGNORE INTO notifications (notification_key, company_id, user_id, role_key, title, message, link_route, entity_type, entity_id, severity)
+                 VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)'
+            );
+            $statement->execute([mb_substr($key, 0, 80), self::companyId(), $userId, mb_substr($title, 0, 150), $message, $route, $entityType, $entityId, in_array($severity, ['info', 'success', 'warning', 'danger'], true) ? $severity : 'info']);
+            if ($statement->rowCount() > 0) {
+                self::email($key, $userId, null, $title, $message, $route, $severity, 'alert', $entityType, $entityId);
+                self::whatsapp($key, $userId, null, $title, $message, $route, $entityType, $entityId);
+            }
+        } catch (\Throwable) {
+            // A reminder is never worth failing anything for.
+        }
+    }
+
     /** Notify every user holding a role. */
     public static function toRole(string $roleKey, string $title, string $message, ?string $route = null, string $severity = 'info', ?string $entityType = null, ?string $entityId = null): void
     {
@@ -129,16 +178,25 @@ final class Notifier
         }
     }
 
+    /**
+     * Reads one update for this person. A personal update is marked on its own
+     * row; an update for a whole role is marked read for this person only.
+     */
     public static function markRead(int $userId, string $roleKey, string $notificationKey): void
     {
         try {
-            $statement = Database::connection()->prepare(
+            $db = Database::connection();
+            $db->prepare(
                 'UPDATE notifications
                     SET is_read = 1, read_at = NOW()
-                  WHERE notification_key = ?
-                    AND (user_id = ? OR (user_id IS NULL AND (role_key = ? OR role_key IS NULL)))'
-            );
-            $statement->execute([$notificationKey, $userId, $roleKey]);
+                  WHERE notification_key = ? AND user_id = ?'
+            )->execute([$notificationKey, $userId]);
+
+            $db->prepare(
+                'INSERT IGNORE INTO notification_reads (notification_id, user_id, read_at)
+                 SELECT id, ?, NOW() FROM notifications
+                  WHERE notification_key = ? AND user_id IS NULL AND (role_key = ? OR role_key IS NULL)'
+            )->execute([$userId, $notificationKey, $roleKey]);
         } catch (\Throwable) {
             // Never break navigation because a read receipt failed.
         }
@@ -147,17 +205,35 @@ final class Notifier
     public static function markAllRead(int $userId, string $roleKey): int
     {
         try {
-            $statement = Database::connection()->prepare(
-                'UPDATE notifications
-                    SET is_read = 1, read_at = NOW()
-                  WHERE is_read = 0
-                    AND (user_id = ? OR (user_id IS NULL AND (role_key = ? OR role_key IS NULL)))'
-            );
-            $statement->execute([$userId, $roleKey]);
+            $db = Database::connection();
+            $own = $db->prepare('UPDATE notifications SET is_read = 1, read_at = NOW() WHERE is_read = 0 AND user_id = ?');
+            $own->execute([$userId]);
 
-            return $statement->rowCount();
+            $shared = $db->prepare(
+                'INSERT IGNORE INTO notification_reads (notification_id, user_id, read_at)
+                 SELECT n.id, ?, NOW() FROM notifications n
+                  WHERE n.user_id IS NULL AND n.is_read = 0 AND (n.role_key = ? OR n.role_key IS NULL)'
+            );
+            $shared->execute([$userId, $roleKey]);
+
+            return $own->rowCount() + $shared->rowCount();
         } catch (\Throwable) {
             return 0;
+        }
+    }
+
+    /**
+     * Raises an alert once per key, for every role it concerns, with email the
+     * first time. For alerts that come from the clock rather than an action.
+     *
+     * @param string|list<string> $roles
+     */
+    public static function raiseOnce(string $key, string|array $roles, string $title, string $message, ?string $route, string $severity, ?string $entityType = null, ?string $entityId = null): void
+    {
+        try {
+            self::once($key, $roles, $title, $message, $route, $severity, $entityType, $entityId);
+        } catch (\Throwable) {
+            // An alert is a convenience; it never blocks anything.
         }
     }
 
@@ -169,79 +245,17 @@ final class Notifier
      */
     public static function refreshOperationalAlerts(): void
     {
+        // Raised on sign-in and by the clock: the emails are held back and sent
+        // in a batch, so nobody waits on the mail provider to open a page.
+        $wasDeferring = Mailer::defer(true);
         try {
             $db = Database::connection();
-            $licenceDays = Settings::int('licence_alert_days', 90);
-            $documentDays = Settings::int('document_alert_days', 30);
-            $serviceDays = Settings::int('service_alert_days', 14);
+            // Documents at 30, 14 and 3 days before expiry, and services at the
+            // warning and due marks (sections 5 and 6).
+            Fleet::alerts();
 
-            // Paperwork that lapses grounds a truck, so it reaches the people who
-            // renew it and the people who answer for the fleet standing idle.
-            $fleetAndOwners = ['fleet_manager', 'super_admin', 'management'];
-
-            $expiringLicences = $db->prepare(
-                'SELECT full_name, license_expiry FROM drivers
-                  WHERE deleted_at IS NULL AND license_expiry IS NOT NULL
-                    AND license_expiry <= DATE_ADD(CURDATE(), INTERVAL ? DAY)'
-            );
-            $expiringLicences->execute([$licenceDays]);
-            foreach ($expiringLicences->fetchAll() as $driver) {
-                self::once(
-                    'licence-' . md5($driver['full_name'] . $driver['license_expiry']),
-                    $fleetAndOwners,
-                    'Driver licence expiring',
-                    sprintf('%s has a licence expiring on %s.', $driver['full_name'], self::when((string) $driver['license_expiry'])),
-                    'drivers',
-                    'warning'
-                );
-            }
-
-            $expiringDocuments = $db->prepare(
-                'SELECT vd.document_code, vd.document_type, vd.expires_on, v.plate_number
-                   FROM vehicle_documents vd
-                   INNER JOIN vehicles v ON v.id = vd.vehicle_id
-                  WHERE vd.deleted_at IS NULL AND vd.status <> "cancelled"
-                    AND vd.expires_on <= DATE_ADD(CURDATE(), INTERVAL ? DAY)'
-            );
-            $expiringDocuments->execute([$documentDays]);
-            foreach ($expiringDocuments->fetchAll() as $document) {
-                self::once(
-                    'vehdoc-' . md5((string) $document['document_code'] . $document['expires_on']),
-                    $fleetAndOwners,
-                    'Vehicle document expiring',
-                    sprintf('%s for %s expires on %s.', ucfirst(str_replace('_', ' ', (string) $document['document_type'])), $document['plate_number'], self::when((string) $document['expires_on'])),
-                    'vehicle_documents',
-                    'danger'
-                );
-            }
-
-            $dueService = $db->prepare(
-                'SELECT plate_number, next_service_date FROM vehicles
-                  WHERE deleted_at IS NULL AND next_service_date IS NOT NULL
-                    AND next_service_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)'
-            );
-            $dueService->execute([$serviceDays]);
-            foreach ($dueService->fetchAll() as $vehicle) {
-                self::once(
-                    'service-' . md5($vehicle['plate_number'] . $vehicle['next_service_date']),
-                    $fleetAndOwners,
-                    'Service due',
-                    sprintf('%s is due for service on %s.', $vehicle['plate_number'], self::when((string) $vehicle['next_service_date'])),
-                    'maintenance',
-                    'warning'
-                );
-            }
-
-            foreach ($db->query('SELECT sku, item_name, quantity, minimum_level FROM inventory_items WHERE deleted_at IS NULL AND quantity <= minimum_level')->fetchAll() as $item) {
-                self::once(
-                    'stock-' . md5((string) $item['sku'] . (string) $item['quantity']),
-                    ['warehouse_manager', 'super_admin'],
-                    'Stock below minimum',
-                    sprintf('%s is at %s against a minimum of %s.', $item['item_name'], rtrim(rtrim((string) $item['quantity'], '0'), '.'), rtrim(rtrim((string) $item['minimum_level'], '0'), '.')),
-                    'warehouse',
-                    'danger'
-                );
-            }
+            // Items at or below their minimum, to that company's store (section 12).
+            Store::lowStockAlerts();
 
             $db->exec("UPDATE invoices SET status = 'overdue' WHERE deleted_at IS NULL AND status IN ('issued','partially_paid') AND due_date < CURDATE()");
             foreach ($db->query("SELECT invoice_number, due_date, currency, (total_amount - amount_paid) AS balance FROM invoices WHERE deleted_at IS NULL AND status = 'overdue'")->fetchAll() as $invoice) {
@@ -261,8 +275,14 @@ final class Notifier
             Containers::alerts(static function (string $key, string $title, string $message, string $severity): void {
                 self::once($key, ['logistics_manager', 'super_admin', 'finance'], $title, $message, 'containers', $severity);
             });
+
+            // A clearance file standing still, and a truck that went quiet.
+            Clearance::stuckAlerts([self::class, 'raiseOnce']);
+            Tracking::silenceAlerts([self::class, 'raiseOnce']);
         } catch (\Throwable) {
             // Alerts are a convenience; a failure here must not block the dashboard.
+        } finally {
+            Mailer::defer($wasDeferring);
         }
     }
 
@@ -294,19 +314,22 @@ final class Notifier
     private static function once(string $key, string|array $roles, string $title, string $message, ?string $route, string $severity, ?string $entityType = null, ?string $entityId = null): void
     {
         $statement = Database::connection()->prepare(
-            'INSERT IGNORE INTO notifications (notification_key, user_id, role_key, title, message, link_route, severity)
-             VALUES (?, NULL, ?, ?, ?, ?, ?)'
+            'INSERT IGNORE INTO notifications (notification_key, company_id, user_id, role_key, title, message, link_route, entity_type, entity_id, severity)
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)'
         );
 
-        foreach (array_unique((array) $roles) as $index => $roleKey) {
+        foreach (array_values(array_unique((array) $roles)) as $index => $roleKey) {
             $roleKey = (string) $roleKey;
             $rowKey = $index === 0 ? $key : $key . '-' . $roleKey;
-            $statement->execute([$rowKey, $roleKey, $title, $message, $route, $severity]);
+            $statement->execute([mb_substr($rowKey, 0, 80), self::companyId(), $roleKey, $title, $message, $route, $entityType, $entityId, $severity]);
 
             // Only email an alert the first time it is raised, which is what the
             // INSERT IGNORE above has just told us.
             if ($statement->rowCount() > 0 && Settings::int('email_alerts_to_roles', 1) === 1) {
                 self::email($rowKey, null, $roleKey, $title, $message, $route, $severity, 'alert', $entityType, $entityId);
+            }
+            if ($statement->rowCount() > 0) {
+                self::whatsapp($rowKey, null, $roleKey, $title, $message, $route, $entityType, $entityId);
             }
         }
     }
@@ -437,13 +460,17 @@ final class Notifier
             return [];
         }
 
+        // People of the company the update is about, and whoever sees the whole group.
+        $company = self::companyId();
         $statement = Database::connection()->prepare(
             "SELECT u.id, u.email, u.full_name
                FROM users u
                INNER JOIN roles r ON r.id = u.role_id
-              WHERE r.role_key = ? AND u.status = 'active' AND u.deleted_at IS NULL AND u.notify_by_email = 1"
+              WHERE r.role_key = ? AND u.status = 'active' AND u.deleted_at IS NULL AND u.notify_by_email = 1
+                AND (? IS NULL OR u.company_id = ? OR u.company_id IS NULL
+                     OR EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = u.role_id AND rp.permission_key = 'all_companies' AND rp.can_view = 1))"
         );
-        $statement->execute([$roleKey]);
+        $statement->execute([$roleKey, $company, $company]);
 
         return $statement->fetchAll();
     }
@@ -461,11 +488,12 @@ final class Notifier
         try {
             $severity = in_array($severity, ['info', 'success', 'warning', 'danger'], true) ? $severity : 'info';
             $statement = Database::connection()->prepare(
-                'INSERT INTO notifications (notification_key, user_id, role_key, title, message, link_route, entity_type, entity_id, severity)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO notifications (notification_key, company_id, user_id, role_key, title, message, link_route, entity_type, entity_id, severity)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $statement->execute([
                 $key,
+                self::companyId(),
                 $userId,
                 $roleKey,
                 mb_substr($title, 0, 150),
@@ -482,6 +510,49 @@ final class Notifier
 
         if ($email) {
             self::email($key, $userId, $roleKey, $title, $message, $route, $severity, 'notification', $entityType, $entityId);
+            self::whatsapp($key, $userId, $roleKey, $title, $message, $route, $entityType, $entityId);
+        }
+    }
+
+    /**
+     * The same update as a short WhatsApp message with a link (section 19),
+     * to each person who chose that kind of update for WhatsApp and has a
+     * number. Sent from the company's WhatsApp Business number.
+     */
+    private static function whatsapp(string $key, ?int $userId, ?string $roleKey, string $title, string $message, ?string $route, ?string $entityType, ?string $entityId): void
+    {
+        try {
+            $topic = \Support\WhatsApp::topicFor($route, $title);
+            $company = self::companyId();
+            if ($userId !== null) {
+                $statement = Database::connection()->prepare(
+                    "SELECT u.id, COALESCE(NULLIF(u.whatsapp_number, ''), u.phone) AS number, u.whatsapp_topics, r.role_key
+                       FROM users u INNER JOIN roles r ON r.id = u.role_id
+                      WHERE u.id = ? AND u.status = 'active' AND u.deleted_at IS NULL"
+                );
+                $statement->execute([$userId]);
+            } elseif ($roleKey !== null && $roleKey !== '') {
+                $statement = Database::connection()->prepare(
+                    "SELECT u.id, COALESCE(NULLIF(u.whatsapp_number, ''), u.phone) AS number, u.whatsapp_topics, r.role_key
+                       FROM users u INNER JOIN roles r ON r.id = u.role_id
+                      WHERE r.role_key = ? AND u.status = 'active' AND u.deleted_at IS NULL
+                        AND (? IS NULL OR u.company_id = ? OR u.company_id IS NULL
+                             OR EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = u.role_id AND rp.permission_key = 'all_companies' AND rp.can_view = 1))"
+                );
+                $statement->execute([$roleKey, $company, $company]);
+            } else {
+                return;
+            }
+            [, $path] = self::reference($route, $entityType, $entityId);
+            $link = $path !== null ? Mailer::link($path) : null;
+            foreach ($statement->fetchAll() as $person) {
+                if (trim((string) $person['number']) === '' || !in_array($topic, \Support\WhatsApp::topicsOf($person['whatsapp_topics'], (string) $person['role_key']), true)) {
+                    continue;
+                }
+                \Support\WhatsApp::send($key . '-w' . $person['id'], (int) $person['id'], (string) $person['number'], $title, $message, $link, $topic, $company);
+            }
+        } catch (\Throwable) {
+            // WhatsApp never stands in the way of the action that caused it.
         }
     }
 }

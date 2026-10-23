@@ -112,7 +112,10 @@ final class Books
         // A printed page has to say which money it counts, or a shilling trial
         // balance and a franc one are indistinguishable once they leave the
         // screen.
-        $result['doc']['period'] = trim($result['doc']['period'] . ' · ' . $currency, ' ·');
+        $shown = $currency === Ledger::BASE
+            ? (\company_view_all() ? 'each company in its base currency (converted)' : Company::baseCurrency() . ' (base currency, converted)')
+            : $currency;
+        $result['doc']['period'] = trim($result['doc']['period'] . ' · ' . \current_company_name() . ' · ' . $shown, ' ·');
 
         return [
             'doc' => $result['doc'],
@@ -138,6 +141,12 @@ final class Books
     {
         $wanted = strtoupper(trim((string) ($query['currency'] ?? '')));
         $available = self::currenciesInUse();
+
+        // Converted into the company's base currency (section 14), from the
+        // rate stored on every entry when it was posted.
+        if ($wanted === Ledger::BASE) {
+            return Ledger::BASE;
+        }
 
         if ($wanted !== '' && in_array($wanted, $available, true)) {
             return $wanted;
@@ -252,7 +261,7 @@ final class Books
 
         $statement = Database::connection()->prepare(
             "SELECT e.entry_no, e.entry_date, e.memo, e.source_code, e.source_type, e.status,
-                    a.account_code, a.account_name, l.description, l.debit, l.credit
+                    a.account_code, a.account_name, l.description, " . Ledger::amount('debit') . " AS debit, " . Ledger::amount('credit') . " AS credit
                FROM gl_journal_entries e
                INNER JOIN gl_journal_lines l ON l.entry_id = e.id
                INNER JOIN gl_accounts a ON a.id = l.account_id
@@ -606,7 +615,7 @@ final class Books
 
         $statement = Database::connection()->prepare(
             "SELECT a.cash_flow_class, a.account_name,
-                    COALESCE(SUM(l.credit - l.debit), 0) AS cash_effect
+                    COALESCE(SUM(" . Ledger::amount('credit') . " - " . Ledger::amount('debit') . "), 0) AS cash_effect
                FROM gl_journal_lines l
                INNER JOIN gl_journal_entries e ON e.id = l.entry_id
                INNER JOIN gl_accounts a ON a.id = l.account_id
@@ -680,7 +689,7 @@ final class Books
     {
         $comparison = $before ? '<' : '<=';
         $statement = Database::connection()->prepare(
-            "SELECT COALESCE(SUM(l.debit - l.credit), 0)
+            "SELECT COALESCE(SUM(" . Ledger::amount('debit') . " - " . Ledger::amount('credit') . "), 0)
                FROM gl_journal_lines l
                INNER JOIN gl_journal_entries e ON e.id = l.entry_id
                INNER JOIN gl_accounts a ON a.id = l.account_id

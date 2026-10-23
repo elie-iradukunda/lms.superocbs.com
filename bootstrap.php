@@ -30,13 +30,16 @@ spl_autoload_register(static function (string $class): void {
  * lives in `role_permissions`.
  */
 $roleDefinitions = [
-    'super_admin' => ['label' => 'Super Admin'],
-    'logistics_manager' => ['label' => 'Logistics Manager'],
-    'fleet_manager' => ['label' => 'Fleet Manager'],
-    'warehouse_manager' => ['label' => 'Warehouse Manager'],
+    'super_admin' => ['label' => 'Admin'],
+    'management' => ['label' => 'Managing Director'],
+    'logistics_manager' => ['label' => 'Operational Manager'],
+    'finance' => ['label' => 'Finance Manager'],
+    'cashier' => ['label' => 'Cashier'],
+    'warehouse_manager' => ['label' => 'Store & garage keeper'],
     'driver' => ['label' => 'Driver'],
-    'finance' => ['label' => 'Finance'],
-    'management' => ['label' => 'Management'],
+    'clearance_officer' => ['label' => 'Declaration Manager'],
+    'supplier' => ['label' => 'Supplier'],
+    'customer' => ['label' => 'Customer'],
 ];
 try {
     $roleRows = \Core\Database::connection()->query('SELECT role_key, role_name FROM roles ORDER BY id')->fetchAll();
@@ -132,7 +135,58 @@ function current_driver_id(): ?int
 /** Everything a query needs to know about who is asking. */
 function current_context(): array
 {
-    return ['role' => current_role(), 'user_id' => current_user_id(), 'driver_id' => current_driver_id()];
+    return ['role' => current_role(), 'user_id' => current_user_id(), 'driver_id' => current_driver_id(), 'companies' => company_scope()];
+}
+
+// ----------------------------------------------------------------- companies
+
+/** May this person look at every company of the group (the head of the business, Admin)? */
+function can_see_all_companies(): bool
+{
+    return is_logged_in() && role_can('all_companies');
+}
+
+/** The company the person belongs to. */
+function home_company_id(): int
+{
+    $id = (int) ($_SESSION['logistics_home_company_id'] ?? 0);
+
+    return $id > 0 ? $id : \Models\Company::defaultId();
+}
+
+/** Is the person looking at the whole group rather than one company? */
+function company_view_all(): bool
+{
+    return can_see_all_companies() && (int) ($_SESSION['logistics_company_id'] ?? -1) === 0;
+}
+
+/**
+ * The company the person is working in: where a new record goes, whose header
+ * is printed. Looking at the whole group, new records still go into their own.
+ */
+function current_company_id(): int
+{
+    $chosen = (int) ($_SESSION['logistics_company_id'] ?? 0);
+    if ($chosen > 0 && (can_see_all_companies() || $chosen === home_company_id())) {
+        return $chosen;
+    }
+
+    return home_company_id();
+}
+
+/** @return list<int>|null the companies a list may show, or null for all of them */
+function company_scope(): ?array
+{
+    if (!is_logged_in()) {
+        return null;
+    }
+
+    return company_view_all() ? null : [current_company_id()];
+}
+
+function current_company_name(): string
+{
+    return company_view_all() ? 'All companies' : \Models\Company::name(current_company_id());
 }
 
 // --------------------------------------------------------------- permissions
@@ -362,24 +416,30 @@ function navigation(): array
 {
     $groups = [
         ['label' => 'Fleet management', 'icon' => 'truck', 'id' => 'fleetMenu', 'items' => [
-            ['vehicles', 'Vehicles'], ['drivers', 'Drivers'], ['driver_documents', 'Driver papers'], ['maintenance', 'Maintenance'], ['vehicle_documents', 'Vehicle documents'],
+            ['vehicles', 'Vehicles'], ['trailers', 'Trailers'], ['vehicle_documents', 'Truck documents'], ['drivers', 'Drivers'], ['driver_documents', 'Driver documents'], ['driver_momo_changes', 'MoMo changes'], ['garage', 'Garage'], ['maintenance', 'Job cards'], ['tyre_logs', 'Tyre log'], ['payroll', 'Payroll list'],
+        ]],
+        ['label' => 'Trips', 'icon' => 'navigation', 'id' => 'tripsMenu', 'items' => [
+            ['trip_planner', 'New trip'], ['trips', 'Trips'], ['fuel_orders', 'Fuel orders'], ['vehicle_handovers', 'Handovers'], ['support_requests', 'Driver support'], ['crane_logs', 'Crane log'], ['routes', 'Routes'], ['route_rates', 'Route rate card'], ['service_rates', 'Crane and tyre rates'],
+        ]],
+        ['label' => 'Requests and payments', 'icon' => 'file-text', 'id' => 'requestsMenu', 'items' => [
+            ['form_requests', 'Requests (F1-F15)'], ['payment_batches', 'Payments'],
         ]],
         ['label' => 'Transport', 'icon' => 'map-pin', 'id' => 'transportMenu', 'items' => [
             // Short labels: the sidebar is narrow, and a name that wraps onto two
             // lines is hard to scan. The page itself still carries the full title.
-            ['requests', 'Transport requests'], ['journeys', 'Journeys'], ['trips', 'Trips'], ['shipments', 'Shipments'], ['shipment_documents', 'Shipment papers'], ['pre_dispatch_checks', 'Dispatch checks'], ['support_requests', 'Driver support'], ['deliveries', 'Deliveries'], ['crossings', 'Customs clearance'], ['clearance_documents', 'Customs documents'], ['clearance_inspections', 'Inspections'], ['clearance_payments', 'Customs payments'], ['clearance_releases', 'Customs releases'], ['containers', 'Containers'], ['border_posts', 'Border posts'],
+            ['requests', 'Transport requests'], ['freight_jobs', 'Freight jobs'], ['journeys', 'Journeys'], ['shipments', 'Shipments'], ['shipment_documents', 'Shipment papers'], ['pre_dispatch_checks', 'Dispatch checks'], ['deliveries', 'Deliveries'], ['crossings', 'Customs clearance'], ['clearance_documents', 'Customs documents'], ['clearance_inspections', 'Inspections'], ['clearance_payments', 'Customs payments'], ['clearance_releases', 'Customs releases'], ['containers', 'Containers'], ['border_posts', 'Border posts'],
         ]],
         ['label' => 'Commercial', 'icon' => 'briefcase', 'id' => 'commercialMenu', 'items' => [
-            ['customers', 'Customers'], ['rates', 'Rate cards'], ['price_offers', 'Price offers'], ['invoices', 'Invoices'], ['payments', 'Payments received'], ['disbursements', 'Disbursements'],
+            ['customers', 'Customers'], ['billing', 'Invoice trips (F13)'], ['rates', 'Rate cards'], ['shortage_rules', 'Shortage tolerance'], ['price_offers', 'Price offers'], ['invoices', 'Invoices'], ['payments', 'Payments received'], ['disbursements', 'Disbursements'], ['cargo_claims', 'Cargo claims'],
         ]],
         ['label' => 'Finance', 'icon' => 'credit-card', 'id' => 'financeMenu', 'items' => [
             ['fuel', 'Fuel management'], ['expenses', 'Trip expenses'], ['supplier_bills', 'Supplier bills'], ['supplier_payments', 'Supplier payments'],
         ]],
         ['label' => 'Warehouse', 'icon' => 'package', 'id' => 'warehouseMenu', 'items' => [
-            ['warehouses', 'Warehouses'], ['storage_lots', 'Customer storage'], ['storage_releases', 'Gate passes'], ['warehouse', 'Inventory'], ['movements', 'Stock movements'], ['procurement', 'Procurement'], ['suppliers', 'Suppliers'],
+            ['store_issues', 'Issue notes'], ['warehouses', 'Stores'], ['warehouse', 'Items and stock'], ['movements', 'Stock movements'], ['stock_counts', 'Stock counts'], ['procurement', 'Procurement'], ['suppliers', 'Suppliers'],
         ]],
         ['label' => 'Accounting', 'icon' => 'book', 'id' => 'accountingMenu', 'items' => [
-            ['books', 'Accounting books'], ['journal', 'Journal'], ['accounts', 'Chart of accounts'], ['cheques', 'Cheques'], ['cheque_books', 'Cheque books'], ['bank_statements', 'Bank reconciliation'], ['budgets', 'Budget'], ['currencies', 'Currencies'], ['payment_methods', 'Payment methods'],
+            ['books', 'Accounting books'], ['journal', 'Journal'], ['accounts', 'Chart of accounts'], ['ledger_mappings', 'Ledger mapping'], ['opening_balances', 'Opening balances'], ['intercompany', 'Inter-company'], ['cheques', 'Cheques'], ['cheque_books', 'Cheque books'], ['bank_statements', 'Bank reconciliation'], ['budgets', 'Budget'], ['currencies', 'Currencies'], ['currency_rates', 'Exchange rates'], ['payment_methods', 'Payment methods'],
         ]],
     ];
 
@@ -422,6 +482,31 @@ if (isset($_GET['switch_role'], $roleDefinitions[$_GET['switch_role']]) && can_s
         // Keep the role switch even if the account lookup fails.
     }
     \Models\Permission::flush();
+}
+
+// Someone allowed to see the whole group switches company from the top bar;
+// `all` shows every company at once.
+if (isset($_GET['switch_company']) && is_logged_in() && PHP_SAPI !== 'cli') {
+    $wanted = (string) $_GET['switch_company'];
+    if ($wanted === 'all' && can_see_all_companies()) {
+        $_SESSION['logistics_company_id'] = 0;
+    } elseif (ctype_digit($wanted) && \Models\Company::find((int) $wanted) !== null
+        && (can_see_all_companies() || (int) $wanted === home_company_id())) {
+        $_SESSION['logistics_company_id'] = (int) $wanted;
+    }
+}
+
+// An idle session ends on its own (Administration > Settings, Security).
+if (is_logged_in() && PHP_SAPI !== 'cli') {
+    $idleLimit = max(5, \Models\Settings::int('session_timeout_minutes', 60)) * 60;
+    $lastSeen = (int) ($_SESSION['logistics_last_activity'] ?? time());
+    if (time() - $lastSeen > $idleLimit) {
+        $_SESSION = [];
+        session_regenerate_id(true);
+        header('Location: ' . url('', ['timed_out' => 1]) . '#login');
+        exit;
+    }
+    $_SESSION['logistics_last_activity'] = time();
 }
 
 /**

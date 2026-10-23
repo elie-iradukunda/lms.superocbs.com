@@ -124,6 +124,15 @@ final class TestRun
         }
     }
 
+    /** An exception stops the suite: report it with every failure collected so far. */
+    public function stopOn(): void
+    {
+        set_exception_handler(function (\Throwable $exception): void {
+            $this->failures[] = 'Stopped by ' . get_class($exception) . ': ' . $exception->getMessage() . ' at ' . basename($exception->getFile()) . ':' . $exception->getLine();
+            $this->finish();
+        });
+    }
+
     public function finish(): never
     {
         if ($this->failures !== []) {
@@ -140,6 +149,26 @@ final class TestRun
 }
 
 /** Signs a role in for the duration of a test, the way the router would. */
+/**
+ * Presses the signing button until every approval step on a record is signed,
+ * as whoever is signed in (a super admin may sign any step). Returns the last
+ * result: the record's own move once the last step is signed, or the refusal.
+ *
+ * @return array{ok: bool, message: string}
+ */
+function test_sign_all(string $module, int $id, string $action = 'approve', int $max = 8): array
+{
+    $result = ['ok' => false, 'message' => 'Nothing was pressed.'];
+    for ($press = 0; $press < $max; $press++) {
+        $result = \Models\Workflow::apply($module, $id, $action);
+        if (!$result['ok'] || !str_starts_with($result['message'], 'Step ')) {
+            return $result;
+        }
+    }
+
+    return $result;
+}
+
 function test_sign_in(array $account, string $roleKey, int $prvg = 2): void
 {
     $_SESSION['logistics_authenticated'] = true;
@@ -149,5 +178,14 @@ function test_sign_in(array $account, string $roleKey, int $prvg = 2): void
     $_SESSION['logistics_user_email'] = (string) $account['email'];
     $_SESSION['logistics_prvg'] = $prvg;
     unset($_SESSION['logistics_driver_id']);
+    // Each person works inside their own company.
+    try {
+        $company = \Core\Database::connection()->prepare('SELECT company_id FROM users WHERE id = ?');
+        $company->execute([(int) $account['id']]);
+        $_SESSION['logistics_home_company_id'] = (int) ($company->fetchColumn() ?: 1);
+    } catch (\Throwable) {
+        $_SESSION['logistics_home_company_id'] = 1;
+    }
+    $_SESSION['logistics_company_id'] = $_SESSION['logistics_home_company_id'];
     \Models\Permission::flush();
 }

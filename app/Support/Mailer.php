@@ -42,9 +42,49 @@ final class Mailer
     /** Severities in order, so a threshold setting can filter the quiet ones out. */
     private const SEVERITY_ORDER = ['info' => 1, 'success' => 2, 'warning' => 3, 'danger' => 4];
 
+    /** While on, messages are recorded and left for flushDeferred() instead of posted now. */
+    private static bool $defer = false;
+
     private static function db(): PDO
     {
         return Database::connection();
+    }
+
+    /**
+     * Holds back sending for work the clock does (alerts on sign-in, approval
+     * reminders), so nobody waits on the mail provider to open a page. Returns
+     * the previous setting, to put back.
+     */
+    public static function defer(bool $on): bool
+    {
+        $was = self::$defer;
+        self::$defer = $on;
+
+        return $was;
+    }
+
+    /**
+     * Sends what was held back: only messages waiting since the last day, so a
+     * pile left while email was switched off is never sent by surprise.
+     */
+    public static function flushDeferred(int $limit = 20): int
+    {
+        if (!self::mayDeliver()) {
+            return 0;
+        }
+        $statement = self::db()->prepare(
+            "SELECT id FROM email_outbox
+              WHERE status = 'queued' AND attempts < ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+              ORDER BY id
+              LIMIT " . max(1, $limit)
+        );
+        $statement->execute([self::MAX_ATTEMPTS]);
+        $sent = 0;
+        foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            $sent += self::deliver((int) $id) ? 1 : 0;
+        }
+
+        return $sent;
     }
 
     // ----------------------------------------------------------- can we send
@@ -112,6 +152,10 @@ final class Mailer
             return ['queued' => true, 'sent' => false, 'id' => $id, 'reason' => 'Queued but not sent.'];
         }
 
+        if (self::$defer || !empty($message['defer'])) {
+            return ['queued' => true, 'sent' => false, 'id' => $id, 'reason' => 'Queued; it is sent within a few minutes.'];
+        }
+
         $sent = self::deliver($id);
 
         return ['queued' => true, 'sent' => $sent, 'id' => $id, 'reason' => $sent ? 'Sent.' : 'Queued; the provider refused it.'];
@@ -124,7 +168,9 @@ final class Mailer
     public static function queue(array $message): ?int
     {
         $to = trim((string) ($message['to'] ?? ''));
-        if ($to === '' || filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
+        // A driver without email has a placeholder address on the reserved
+        // .invalid domain: nothing is ever sent to it.
+        if ($to === '' || filter_var($to, FILTER_VALIDATE_EMAIL) === false || str_ends_with(strtolower($to), '.invalid')) {
             return null;
         }
 

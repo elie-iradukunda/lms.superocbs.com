@@ -112,8 +112,14 @@ final class Posting
             return null;
         }
 
-        if ($invoice['deleted_at'] !== null || in_array($invoice['status'], ['draft', 'cancelled'], true)) {
+        // An open balance brought over from Tally is already in the opening ledger.
+        if ($invoice['deleted_at'] !== null || in_array($invoice['status'], ['draft', 'cancelled'], true) || (int) ($invoice['is_opening'] ?? 0) === 1) {
             self::unpost('invoice', $invoiceId);
+            return null;
+        }
+
+        // Made from an F13 (section 13): it posted when the MD authorized it.
+        if (!empty($invoice['request_id'])) {
             return null;
         }
 
@@ -290,6 +296,12 @@ final class Posting
 
         if ($order === null || $order['deleted_at'] !== null || $order['status'] !== 'completed') {
             self::unpost('maintenance', $orderId);
+            return null;
+        }
+
+        // An ERI job card (section 12) posts as it goes: parts when the store
+        // issues them, outside work through the supplier's invoice (F12).
+        if (($order['flow'] ?? 'legacy') === 'eri') {
             return null;
         }
 

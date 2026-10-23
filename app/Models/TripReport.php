@@ -157,7 +157,7 @@ final class TripReport
         $in = implode(',', $shipmentIds);
         $containers = $db->prepare("SELECT * FROM containers WHERE deleted_at IS NULL AND (trip_id = ? OR shipment_id IN ($in)) ORDER BY id");
         $containers->execute([$tripId]);
-        $storage = $db->query("SELECT sl.*, w.warehouse_name FROM storage_lots sl LEFT JOIN warehouses w ON w.id = sl.warehouse_id WHERE sl.deleted_at IS NULL AND sl.shipment_id IN ($in) ORDER BY sl.id");
+        $storage = [];
 
         $invoices = [];
         if ($commercial) {

@@ -438,6 +438,86 @@ $(function () {
   });
 })();
 </script>
+<?php if (is_logged_in()): ?>
+<div class="lms-toasts" aria-live="polite" aria-atomic="false"></div>
+<script>
+// Live updates: every minute the page asks what is new. New updates pop up in
+// the corner (and on the desktop, when the person allowed it), and the bell
+// and the approvals count follow without a reload.
+(function () {
+  var feedUrl = <?= json_encode(url(['notifications', 'feed'])) ?>;
+  var after = <?= (int) (new \Models\Notification())->latestId() ?>;
+  var box = document.querySelector('.lms-toasts');
+  var tones = { danger: 'danger', warning: 'warning', success: 'success', info: 'primary' };
+
+  function setBadge(selector, count, holderSelector, className) {
+    var badge = document.querySelector(selector);
+    if (count > 0) {
+      if (!badge) {
+        var holder = document.querySelector(holderSelector);
+        if (!holder) { return; }
+        badge = document.createElement('em');
+        badge.className = className;
+        holder.appendChild(badge);
+      }
+      badge.textContent = count > 9 ? '9+' : String(count);
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+
+  function toast(item) {
+    var el = document.createElement(item.url ? 'a' : 'div');
+    el.className = 'lms-toast lms-toast-' + (tones[item.severity] || 'primary');
+    if (item.url) { el.href = item.url; }
+    var title = document.createElement('strong');
+    title.textContent = item.title;
+    var text = document.createElement('span');
+    text.textContent = item.message;
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'lms-toast-close';
+    close.setAttribute('aria-label', 'Close');
+    close.textContent = '×';
+    close.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); el.remove(); });
+    el.appendChild(close); el.appendChild(title); el.appendChild(text);
+    box.appendChild(el);
+    setTimeout(function () { el.classList.add('is-leaving'); setTimeout(function () { el.remove(); }, 400); }, 12000);
+
+    try {
+      if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+        var n = new Notification(item.title, { body: item.message, tag: item.key, icon: <?= json_encode(asset('assets/img/app-icon-192.png')) ?> });
+        if (item.url) { n.onclick = function () { window.focus(); window.location.href = item.url; }; }
+      }
+    } catch (e) {}
+  }
+
+  function poll() {
+    fetch(feedUrl + '?after=' + after, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) { return; }
+        setBadge('.lms-bell-badge', data.unread, '.lms-bell', 'lms-bell-badge');
+        setBadge('.lms-approvals-badge', data.approvals, '[data-approvals-link]', 'lms-approvals-badge');
+        (data.items || []).forEach(toast);
+        if (data.latest > after) { after = data.latest; }
+      })
+      .catch(function () {});
+  }
+
+  setTimeout(poll, 4000);
+  setInterval(poll, 60000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { poll(); } });
+
+  document.querySelectorAll('[data-desktop-alerts]').forEach(function (button) {
+    if (!('Notification' in window) || Notification.permission === 'granted') { button.hidden = true; return; }
+    button.addEventListener('click', function () {
+      Notification.requestPermission().then(function (answer) { if (answer === 'granted') { button.hidden = true; } });
+    });
+  });
+})();
+</script>
+<?php endif; ?>
 <?php require __DIR__ . '/pwa.php'; ?>
 </body>
 </html>

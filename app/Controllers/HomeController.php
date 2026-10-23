@@ -64,13 +64,107 @@ final class HomeController
             $this->redirectHome('login_error=1#login');
         }
 
+        $repository->logAttempt($email, true);
+
+        // Approvers (and anyone Admin marks) confirm a code sent by email before
+        // the session opens, so nobody can sign for someone else with a stolen
+        // password (specification, section 9).
+        if ($this->needsTwoStep($user)) {
+            $code = (string) random_int(100000, 999999);
+            $_SESSION['logistics_two_step'] = [
+                'user_id' => (int) $user['id'],
+                'hash' => password_hash($code, PASSWORD_DEFAULT),
+                'expires' => time() + 600,
+                'tries' => 0,
+            ];
+            $result = Mailer::send([
+                'key' => 'two-step-' . $user['id'] . '-' . time(),
+                'category' => 'two_step_login',
+                'to' => (string) $user['email'],
+                'to_name' => (string) $user['full_name'],
+                'user_id' => (int) $user['id'],
+                'subject' => 'Your LMS sign-in code',
+                'heading' => 'Your sign-in code',
+                'lines' => [
+                    sprintf('Hello %s,', (string) $user['full_name']),
+                    'Use this code to finish signing in: ' . $code,
+                    'It works once and expires in 10 minutes. If you did not try to sign in, change your password.',
+                ],
+                'entity_type' => 'users',
+                'entity_id' => (string) $user['id'],
+            ]);
+            // With no mail configured the code can only be shown on a test
+            // installation (APP_DEBUG=1), never in production.
+            $_SESSION['logistics_two_step']['shown'] = !$result['sent'] && (bool) \config('app.debug', false) ? $code : null;
+            $_SESSION['logistics_two_step']['emailed'] = (bool) $result['sent'];
+            AuditLog::record('auth.two_step_sent', 'user', (string) $user['id']);
+            header('Location: ' . \url(['login', 'verify']));
+            exit;
+        }
+
+        $this->openSession($user);
+    }
+
+    /** The second step: the code that was emailed. */
+    public function verify(): void
+    {
+        $pending = $_SESSION['logistics_two_step'] ?? null;
+        if (!is_array($pending) || (int) ($pending['expires'] ?? 0) < time()) {
+            unset($_SESSION['logistics_two_step']);
+            $this->redirectHome('login_error=expired#login');
+        }
+
+        $error = null;
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $code = preg_replace('/\D/', '', (string) ($_POST['code'] ?? '')) ?? '';
+            $_SESSION['logistics_two_step']['tries'] = (int) $pending['tries'] + 1;
+            if (Csrf::check() && $code !== '' && password_verify($code, (string) $pending['hash'])) {
+                unset($_SESSION['logistics_two_step']);
+                $user = (new UserRepository())->findById((int) $pending['user_id']);
+                if ($user === null) {
+                    $this->redirectHome('login_error=1#login');
+                }
+                $this->openSession($user);
+            }
+            if ($_SESSION['logistics_two_step']['tries'] >= 5) {
+                unset($_SESSION['logistics_two_step']);
+                AuditLog::record('auth.two_step_failed', 'user', (string) $pending['user_id']);
+                $this->redirectHome('login_error=1#login');
+            }
+            $error = 'That code is not right. Check the latest email and try again.';
+        }
+
+        \view('auth/verify', [
+            'title' => 'Enter your sign-in code',
+            'error' => $error,
+            'shown' => $pending['shown'] ?? null,
+            'emailed' => (bool) ($pending['emailed'] ?? false),
+        ]);
+    }
+
+    private function needsTwoStep(array $user): bool
+    {
+        if ((int) ($user['two_step_login'] ?? 0) === 1) {
+            return true;
+        }
+        if (\Models\Settings::int('two_step_for_approvers', 1) !== 1) {
+            return false;
+        }
+
+        // The roles that sign money: they verify, authorize and pay.
+        return in_array((string) $user['role_key'], ['finance', 'management', 'cashier'], true);
+    }
+
+    private function openSession(array $user): never
+    {
+        $repository = new UserRepository();
+
         // A new session id at the moment privileges change closes the session
         // fixation hole that existed while the id was reused across login.
         session_regenerate_id(true);
         Csrf::rotate();
 
         $repository->touchLastLogin((int) $user['id']);
-        $repository->logAttempt($email, true);
 
         $_SESSION['logistics_authenticated'] = true;
         $_SESSION['logistics_role'] = (string) $user['role_key'];
@@ -82,6 +176,10 @@ final class HomeController
         $_SESSION['logistics_user_avatar'] = $user['avatar_path'] ?? null;
         $_SESSION['logistics_prvg'] = (int) $user['prvg'] === 1 ? 1 : 2;
         $_SESSION['logistics_must_change_password'] = (int) $user['must_change_password'] === 1;
+        // Each person works inside their own company (section 3).
+        $_SESSION['logistics_home_company_id'] = (int) ($user['company_id'] ?? 0) ?: \Models\Company::defaultId();
+        $_SESSION['logistics_company_id'] = $_SESSION['logistics_home_company_id'];
+        $_SESSION['logistics_last_activity'] = time();
         unset($_SESSION['logistics_driver_id']);
 
         Permission::flush();
@@ -215,7 +313,7 @@ final class HomeController
     public static function passwordProblem(string $password, string $confirm): ?string
     {
         return match (true) {
-            strlen($password) < 10 => 'The new password must be at least 10 characters long.',
+            strlen($password) < self::minimumLength() => 'The new password must be at least ' . self::minimumLength() . ' characters long.',
             $password !== $confirm => 'The two passwords do not match.',
             preg_match('/[a-z]/', $password) !== 1 => 'The new password needs at least one lower-case letter.',
             preg_match('/[A-Z]/', $password) !== 1 => 'The new password needs at least one capital letter.',
@@ -223,6 +321,12 @@ final class HomeController
             in_array(strtolower($password), ['password', 'password123', 'logistics1'], true) => 'That password is too easy to guess.',
             default => null,
         };
+    }
+
+    /** Admin sets it under Settings > Security; never below 8. */
+    public static function minimumLength(): int
+    {
+        return max(8, \Models\Settings::int('password_min_length', 10));
     }
 
     private function redirectHome(string $query = ''): never

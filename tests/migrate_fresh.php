@@ -93,8 +93,9 @@ try {
         $assert(in_array($table, $tables, true), "a fresh install creates the {$table} table");
     }
 
-    $assert((int) $pdo->query('SELECT COUNT(*) FROM roles')->fetchColumn() === 7, 'seven roles are created');
-    $assert((int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() === 7, 'seven users are created');
+    // The seven first roles, the workshop and the clearance officer: one login each.
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM roles')->fetchColumn() === 9, 'nine roles are created');
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() === 9, 'one user per role is created');
     $assert((int) $pdo->query('SELECT COUNT(*) FROM permissions')->fetchColumn() >= 28, 'every module has a permission row');
     $assert((int) $pdo->query('SELECT COUNT(*) FROM role_permissions')->fetchColumn() >= 60, 'the role matrix is populated');
     $assert((int) $pdo->query('SELECT COUNT(*) FROM company_settings')->fetchColumn() >= 15, 'company settings are populated');

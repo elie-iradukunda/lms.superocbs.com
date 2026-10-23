@@ -24,9 +24,9 @@ $add = static function (string $label, string $value, string $icon) use (&$highl
 switch ($moduleKey) {
     case 'vehicles':
         $add('Odometer', $record['mileage'] !== null ? number_format((float) $record['mileage']) . ' km' : '', 'activity');
-        $add('Payload', $record['capacity_kg'] !== null ? number_format((float) $record['capacity_kg']) . ' kg' : '', 'box');
+        $add('Maximum load', $record['max_payload_t'] !== null ? rtrim(rtrim((string) $record['max_payload_t'], '0'), '.') . ' t' : '', 'box');
         $add('Driver', $display['assigned_driver_id'] ?: 'Unassigned', 'user');
-        $add('Next service', (string) $record['next_service_date'], 'tool');
+        $add('Service', \Models\Fleet::serviceState($record)['label'], 'tool');
         break;
     case 'trips':
         $add('Route', trim((string) $record['pickup_location'] . ' to ' . (string) $record['destination'], ' to '), 'map-pin');
@@ -91,13 +91,7 @@ switch ($moduleKey) {
         $add('Due', (string) $record['due_date'], 'calendar');
         break;
     case 'warehouses':
-        // What is physically in the shed, which is the question a depot manager
-        // is actually asked. Our own stock is counted separately below.
-        $held = \Models\CargoCustody::heldAt((int) $record['id']);
         $add('Location', (string) $record['location'], 'map-pin');
-        $add('Cargo held', $held['loads'] === 0 ? 'Empty' : $held['loads'] . ($held['loads'] === 1 ? ' consignment' : ' consignments'), 'box');
-        $add('Weight in the shed', $held['weight'] > 0 ? rtrim(rtrim(number_format($held['weight'], 2, '.', ','), '0'), '.') . ' kg' : '', 'bar-chart');
-        $add('Packages', $held['packages'] > 0 ? number_format($held['packages']) : '', 'package');
         break;
     case 'customers':
         $add('Type', $statusLabel === '' ? '' : ($module['fields']['customer_type']['options'][$record['customer_type']] ?? ''), 'briefcase');
@@ -112,10 +106,11 @@ switch ($moduleKey) {
         $add('Weight', $record['weight_kg'] !== null ? rtrim(rtrim(number_format((float) $record['weight_kg'], 2, '.', ','), '0'), '.') . ' kg' : '', 'bar-chart');
         break;
     case 'drivers':
-        $add('Licence', (string) $record['license_number'], 'credit-card');
-        $add('Expires', (string) $record['license_expiry'], 'calendar');
-        $add('Phone', (string) $record['phone'], 'phone');
-        $add('Login', $display['user_id'] ?: 'Not linked', 'log-in');
+        $add('Phone (login)', (string) $record['phone'], 'phone');
+        $add('Paid by', $record['payment_method'] === 'cash' ? 'Cash' : 'MoMo ' . (string) $record['momo_number'], 'smartphone');
+        $add('Licence', trim((string) $record['license_number'] . ($record['license_expiry'] ? ' · ' . human_date((string) $record['license_expiry']) : '')), 'credit-card');
+        $add('Login', !empty($record['user_id']) ? 'Created' : 'Not created (no phone)', 'log-in');
+        $add('Last seen in the app', $record['last_seen_at'] ? time_ago((string) $record['last_seen_at']) : 'Never', 'radio');
         break;
 }
 
@@ -270,6 +265,53 @@ if (!empty($record['rejection_reason'])) {
     </div>
   <?php endif; ?>
 
+  <?php
+  // Who has signed, who is next, and how long they have: each round of
+  // approvals on this record, the current one first.
+  $approvalRounds = \Models\Approvals::supports($moduleKey) ? \Models\Approvals::timeline($moduleKey, (int) $record['id']) : [];
+  if ($approvalRounds !== []):
+      $current = $approvalRounds[0];
+      $stepTone = ['approved' => 'success', 'pending' => 'warning', 'waiting' => 'light', 'rejected' => 'danger', 'cancelled' => 'secondary'];
+      $stepWord = ['approved' => 'Signed', 'pending' => 'Waiting now', 'waiting' => 'Next', 'rejected' => 'Sent back', 'cancelled' => 'Cancelled'];
+  ?>
+    <div class="card shadow-sm lms-approval-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap mb-2" style="gap:8px">
+          <strong><i class="fe fe-check-square fe-12 mr-1"></i>Approvals<?= count($approvalRounds) > 1 ? ' · round ' . (int) $current['round'] : '' ?></strong>
+          <a class="small" href="<?= url('approvals') ?>">My approvals inbox</a>
+        </div>
+        <ol class="lms-approval-steps">
+          <?php foreach ($current['steps'] as $n => $step): ?>
+            <?php $late = $step['status'] === 'pending' && $step['due_at'] !== null && strtotime((string) $step['due_at']) < time(); ?>
+            <li class="is-<?= e((string) $step['status']) ?>">
+              <span class="lms-approval-num"><?= $step['status'] === 'approved' ? '<i class="fe fe-check"></i>' : ($step['status'] === 'rejected' ? '<i class="fe fe-x"></i>' : $n + 1) ?></span>
+              <div>
+                <strong><?= e($step['step_label']) ?></strong>
+                <span class="d-block small text-muted"><?= e($step['role_name']) ?></span>
+                <span class="badge badge-pill badge-<?= e($stepTone[$step['status']] ?? 'light') ?>"><?= e($stepWord[$step['status']] ?? $step['status']) ?></span>
+                <?php if ($step['decided_at'] !== null && in_array($step['status'], ['approved', 'rejected'], true)): ?>
+                  <span class="d-block small"><?= e($step['decider_name'] ?? '') ?>, <?= e(human_date((string) $step['decided_at'], true)) ?></span>
+                <?php elseif ($step['status'] === 'pending' && $step['due_at'] !== null): ?>
+                  <span class="d-block small <?= $late ? 'text-danger' : 'text-muted' ?>">Decide by <?= e(human_date((string) $step['due_at'], true)) ?><?= $late ? ' (late)' : '' ?></span>
+                <?php endif; ?>
+                <?php if (!empty($step['comment'])): ?><span class="d-block small text-muted">“<?= e($step['comment']) ?>”</span><?php endif; ?>
+              </div>
+            </li>
+          <?php endforeach; ?>
+        </ol>
+        <?php if (count($approvalRounds) > 1): ?>
+          <details class="small mt-2"><summary>Earlier rounds</summary>
+            <?php foreach (array_slice($approvalRounds, 1) as $round): ?>
+              <div class="mt-1">Round <?= (int) $round['round'] ?>:
+                <?= e(implode(' · ', array_map(static fn (array $s): string => $s['step_label'] . ' ' . strtolower($stepWord[$s['status']] ?? $s['status']) . ($s['decider_name'] ? ' by ' . $s['decider_name'] : '') . ($s['comment'] ? ' (' . $s['comment'] . ')' : ''), $round['steps']))) ?>
+              </div>
+            <?php endforeach; ?>
+          </details>
+        <?php endif; ?>
+      </div>
+    </div>
+  <?php endif; ?>
+
   <?php foreach ($actionForms ?? [] as $formKey => $formSpec): ?>
     <div class="modal fade" id="actionForm-<?= e($formKey) ?>" tabindex="-1" role="dialog" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content">
       <form method="post" action="<?= url([$moduleKey, $record['id'], 'action', $formKey]) ?>">
@@ -329,6 +371,23 @@ if (!empty($record['rejection_reason'])) {
   if ($analysis !== null) {
       require __DIR__ . '/../partials/readiness.php';
   }
+
+  // The road the truck has taken, and where it is now.
+  if ($moduleKey === 'trips' && in_array((string) ($record['status'] ?? ''), ['approved', 'loading', 'in_transit', 'delivered'], true)):
+      $pageScripts = array_merge($pageScripts ?? [], ['/assets/vendor/leaflet/leaflet.js', '/assets/js/lms-map.js']);
+      $lastSeen = \Models\Tracking::lastForTrip((int) $record['id']);
+  ?>
+    <link rel="stylesheet" href="<?= asset('assets/vendor/leaflet/leaflet.css') ?>">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong><i class="fe fe-map fe-12 mr-1"></i>Where the truck is</strong>
+        <small class="text-muted"><?= $lastSeen !== null ? 'Last position ' . e(time_ago((string) $lastSeen['recorded_at'])) : 'No position reported yet' ?></small>
+      </div>
+      <div class="lms-map" data-lms-map data-source="<?= e(url(['trips', (int) $record['id'], 'trail'])) ?>" data-refresh="<?= $record['status'] === 'in_transit' ? 60 : 0 ?>"
+           data-empty-text="Positions appear here once the driver shares the location on My trips, or the truck's GPS tracker reports."></div>
+    </div>
+  <?php endif; ?>
+  <?php
   ?>
 
   <?php if ($highlights !== []): ?>

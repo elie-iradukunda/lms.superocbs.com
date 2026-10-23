@@ -91,6 +91,11 @@ final class LogisticsData
             $parameters[] = $scope[1];
         }
 
+        $company = self::companyCondition($module, $context);
+        if ($company !== null) {
+            $conditions[] = $company;
+        }
+
         $statement = self::db()->prepare(sprintf(
             'SELECT %s.* FROM %s %s %s WHERE %s LIMIT 1',
             $alias,
@@ -246,6 +251,16 @@ final class LogisticsData
             );
 
             $where = $where === '' ? $scope : "({$where}) AND ({$scope})";
+        }
+
+        // A drop-down offers only the company's own trucks, drivers and
+        // customers. A relation that must reach across the group (a sister
+        // company's truck, an inter-company supplier) says 'all_companies'.
+        if (empty($relation['all_companies']) && \is_logged_in()) {
+            $company = Company::condition($table, $table . '.company_id');
+            if ($company !== null) {
+                $where = $where === '' ? $company : "({$where}) AND {$company}";
+            }
         }
 
         $sql = "SELECT id, {$labelColumn} AS label FROM {$table}";
@@ -500,8 +515,83 @@ final class LogisticsData
         }
 
         $errors = array_merge($errors, self::businessRules($key, $module, $input, $id));
+        $errors = array_merge($errors, Hooks::rules($key, $input, $id));
+
+        // A status the signatures give is not typed on the form.
+        $errors = array_merge($errors, Approvals::formErrors($key, $input, $id), self::tripStatusErrors($key, $input, $id));
+
+        if ($key === 'approval_policies') {
+            $hasAmount = trim((string) ($input['min_amount'] ?? '')) !== '';
+            $hasCurrency = trim((string) ($input['currency'] ?? '')) !== '';
+            if ($hasAmount !== $hasCurrency) {
+                $errors[] = 'An amount and its currency go together: money is never compared across currencies. Give both, or leave both empty for a step every record passes.';
+            }
+            $module = (string) ($input['module'] ?? '');
+            $action = (string) ($input['action'] ?? '');
+            if ($module !== '' && $action !== '' && (Approvals::ACTIONS[$module] ?? '') !== $action) {
+                $errors[] = sprintf('%s is signed by pressing %s.', Approvals::moduleOptions()[$module] ?? $module, ucfirst(Approvals::ACTIONS[$module] ?? 'approve'));
+            }
+        }
 
         return array_values(array_unique($errors));
+    }
+
+    /**
+     * The trip form may plan a trip and say it is loading. Leaving, arriving
+     * and being cancelled are the buttons, because they check the truck, the
+     * papers, the approvals and the clearance, and tell everybody.
+     *
+     * @return list<string>
+     */
+    private static function tripStatusErrors(string $key, array $input, ?int $id): array
+    {
+        if ($key !== 'trips' || !array_key_exists('status', $input)) {
+            return [];
+        }
+        $wanted = (string) $input['status'];
+        $current = $id !== null ? (string) self::scalar('SELECT status FROM trips WHERE id = ?', [$id]) : 'requested';
+        if ($wanted === $current) {
+            return [];
+        }
+        if (in_array($wanted, ['in_transit', 'delivered', 'cancelled'], true)) {
+            return [sprintf('A trip becomes "%s" through its buttons (Dispatch, Mark delivered, Cancel), which run the checks and tell the people concerned.', Schema::label($wanted))];
+        }
+        if ($wanted === 'loading' && $current === 'requested' && Approvals::has('trips', 'approve')) {
+            return ['Approve the trip first: loading starts once every department has released it.'];
+        }
+
+        return [];
+    }
+
+    /**
+     * A checked paper whose scan or number is replaced is a different paper:
+     * it goes back to be checked again.
+     */
+    private static function paperChanged(string $table, string $numberColumn, array $columns, ?int $id): array
+    {
+        if ($id === null) {
+            return $columns;
+        }
+        $statement = self::db()->prepare("SELECT status, document_file, {$numberColumn} AS number FROM {$table} WHERE id = ?");
+        $statement->execute([$id]);
+        $before = $statement->fetch(\PDO::FETCH_ASSOC);
+        if ($before === false) {
+            return $columns;
+        }
+        $fileChanged = array_key_exists('document_file', $columns) && (string) $columns['document_file'] !== (string) $before['document_file'];
+        $numberChanged = array_key_exists($numberColumn, $columns) && trim((string) $columns[$numberColumn]) !== trim((string) $before['number']);
+        if ($fileChanged && (string) $columns['document_file'] !== '' && \current_user_id() !== null) {
+            // Whoever attaches the scan is told if it is sent back.
+            $columns['uploaded_by'] = \current_user_id();
+        }
+        if ($before['status'] !== 'valid') {
+            return $columns;
+        }
+        if (($fileChanged || $numberChanged) && Approvals::has($table === 'border_documents' ? 'clearance_documents' : 'shipment_documents', 'verify')) {
+            $columns['status'] = 'pending';
+        }
+
+        return $columns;
     }
 
     /**
@@ -847,27 +937,6 @@ final class LogisticsData
             }
         }
 
-        // A gate pass cannot let out more than is in the bay.
-        if ($key === 'storage_releases' && $value('lot_id') !== '' && $value('quantity') !== '') {
-            $quantity = (float) str_replace(',', '', $value('quantity'));
-            $onHand = Storage::onHand((int) $value('lot_id'), $id);
-            if ($quantity <= 0) {
-                $errors[] = 'Quantity released must be more than zero.';
-            } elseif ($quantity > $onHand + 0.004) {
-                $errors[] = sprintf('Only %s is left in this lot; the gate pass cannot release %s.', rtrim(rtrim(number_format($onHand, 2, '.', ','), '0'), '.'), rtrim(rtrim(number_format($quantity, 2, '.', ','), '0'), '.'));
-            }
-        }
-
-        if ($key === 'storage_lots' && $value('quantity_received') !== '') {
-            $quantity = (float) str_replace(',', '', $value('quantity_received'));
-            $released = $id !== null ? (float) self::scalar('SELECT COALESCE(SUM(quantity), 0) FROM storage_releases WHERE lot_id = ? AND deleted_at IS NULL', [$id]) : 0.0;
-            if ($quantity <= 0) {
-                $errors[] = 'Quantity received must be more than zero.';
-            } elseif ($quantity + 0.004 < $released) {
-                $errors[] = sprintf('%s has already been released from this lot, so it cannot have received less than that.', rtrim(rtrim(number_format($released, 2, '.', ','), '0'), '.'));
-            }
-        }
-
         if ($key === 'containers') {
             $out = $value('picked_up_at');
             foreach (['unloaded_at' => 'unloaded', 'returned_at' => 'returned'] as $field => $word) {
@@ -913,9 +982,8 @@ final class LogisticsData
         // Renaming a reference-list entry has to follow the records that carry
         // the old name, which means knowing what it was. Only the modules that
         // ask for it pay for the extra read.
-        $before = $id !== null && !empty($module['track_changes'])
-            ? self::rowBefore($module['table'], $id)
-            : [];
+        // The values before the change go into the audit log (section 21).
+        $before = $id !== null ? self::rowBefore($module['table'], $id) : [];
 
         foreach (Schema::editableFields($key, \current_role()) as $name => $field) {
             if ($field['type'] === 'file') {
@@ -951,6 +1019,14 @@ final class LogisticsData
         }
 
         $columns = self::derive($key, $columns, $id);
+        $columns = Hooks::derive($key, $columns, $id);
+
+        // A new record belongs to the company the person is working in, unless
+        // the form let them choose (a shared customer, a group-wide supplier).
+        if ($id === null && !array_key_exists('company_id', $columns) && Company::tableHasCompany($module['table'])) {
+            $columns['company_id'] = \current_company_id();
+        }
+
         $columns = self::respectNotNull($module['table'], $columns);
 
         // The insert below fills $id in, so whether this was a creation has to
@@ -979,6 +1055,14 @@ final class LogisticsData
             }
 
             self::afterSave($key, $id, $columns, $before);
+            Hooks::saved($key, $id, $columns, $before);
+
+            // A record that needs signatures puts its first step in front of
+            // the department that signs it; an edit that changes what was
+            // signed starts the signatures again.
+            if (Approvals::supports($key)) {
+                Approvals::open($key, $id, null, $isNew ? \current_user_id() : null);
+            }
 
             if ($owning) {
                 $db->commit();
@@ -991,7 +1075,11 @@ final class LogisticsData
         }
 
         $record = self::find($key, $id) ?? $columns;
-        AuditLog::record($isNew ? 'record.created' : 'record.updated', $key, self::code($key, $record));
+        $after = self::rowBefore($module['table'], $id);
+        // Only what changed is kept, so the log reads as the edit that was made.
+        $changedBefore = $isNew ? null : array_diff_assoc(array_map(static fn ($v) => $v === null ? null : (string) $v, $before), array_map(static fn ($v) => $v === null ? null : (string) $v, $after));
+        $changedAfter = $isNew ? $after : array_intersect_key($after, $changedBefore ?? []);
+        AuditLog::record($isNew ? 'record.created' : 'record.updated', $key, self::code($key, $record), null, [], $changedBefore, $changedAfter);
 
         return $id;
     }
@@ -1072,16 +1160,20 @@ final class LogisticsData
         }
 
         if ($key === 'clearance_documents') {
+            $columns = self::paperChanged('border_documents', 'document_no', $columns, $id);
             if (!empty($columns['expires_on']) && strtotime((string) $columns['expires_on']) < strtotime(date('Y-m-d'))) {
                 $columns['status'] = 'expired';
             }
-            $columns['is_received'] = ($columns['status'] ?? 'pending') === 'valid' ? 1 : 0;
+            if (array_key_exists('status', $columns)) {
+                $columns['is_received'] = $columns['status'] === 'valid' ? 1 : 0;
+            }
             if ($id === null && \current_user_id() !== null) {
                 $columns['uploaded_by'] = \current_user_id();
             }
         }
 
         if ($key === 'shipment_documents') {
+            $columns = self::paperChanged('shipment_documents', 'document_number', $columns, $id);
             if (!empty($columns['expiry_date']) && strtotime((string) $columns['expiry_date']) < strtotime(date('Y-m-d'))) {
                 $columns['status'] = 'expired';
             }
@@ -1173,14 +1265,6 @@ final class LogisticsData
             }
         }
 
-        if ($key === 'storage_lots' && $id === null) {
-            $columns['status'] = 'in_store';
-        }
-
-        if ($key === 'storage_releases' && $id === null) {
-            $columns['authorised_by'] = \current_user_id();
-        }
-
         // Where a box is follows the dates on its form, so filling in the
         // empty-return date is enough to close it.
         if ($key === 'containers') {
@@ -1255,6 +1339,7 @@ final class LogisticsData
             'payments', 'supplier_payments' => 'recorded_by',
             'price_offers' => 'created_by',
             'support_requests' => 'requested_by',
+            'trips', 'freight_jobs', 'cargo_claims', 'tyre_logs', 'crane_logs' => 'created_by',
             default => null,
         };
         if ($actor !== null) {
@@ -1277,6 +1362,14 @@ final class LogisticsData
 
         if ($key === 'users' && \current_prvg() !== 1) {
             unset($columns['prvg']);
+        }
+
+        // The department name is kept on the account too, for the screens and
+        // letters that print it.
+        if ($key === 'users' && array_key_exists('department_id', $columns)) {
+            $columns['department'] = $columns['department_id'] === null
+                ? null
+                : (self::scalar('SELECT department_name FROM departments WHERE id = ?', [(int) $columns['department_id']]) ?: null);
         }
 
         if ($key === 'users' && $id === null) {
@@ -1322,6 +1415,18 @@ final class LogisticsData
 
     /** Set when a user record is created, so the controller can show it once. */
     private static ?string $lastOneTimePassword = null;
+
+    /** A login created by another module's rules (a driver) hands its password over here. */
+    public static function rememberOneTimePassword(string $password): void
+    {
+        self::$lastOneTimePassword = $password;
+    }
+
+    /** A fresh one-time password, for logins created outside the users form. */
+    public static function newOneTimePassword(): string
+    {
+        return self::oneTimePassword();
+    }
 
     public static function takeOneTimePassword(): ?string
     {
@@ -1382,6 +1487,27 @@ final class LogisticsData
         }
         if ($key === 'crossings') {
             BorderCrossing::timesFromStops($id);
+            // A new file starts with its checklist of papers in front of the
+            // clearance department.
+            if ($before === []) {
+                Clearance::openFile($id, true);
+            }
+        }
+
+        // A forwarding file opens its shipment, and keeps it in step until it leaves.
+        if ($key === 'freight_jobs') {
+            FreightJobs::syncShipment($id);
+        }
+
+        // A department given a step can press the button for it.
+        if ($key === 'approval_policies' && !empty($columns['approver_role']) && !empty($columns['module'])) {
+            $db->prepare(
+                'INSERT INTO role_permissions (role_id, permission_key, can_view, can_create, can_edit, can_delete, can_approve)
+                 SELECT id, ?, 1, 0, 0, 0, 1 FROM roles WHERE role_key = ?
+                 ON DUPLICATE KEY UPDATE can_view = 1, can_approve = 1'
+            )->execute([(string) $columns['module'], (string) $columns['approver_role']]);
+            Approvals::flush();
+            Permission::flush();
         }
 
         // A driver asking for help: whoever he chose, and the logistics
@@ -1449,7 +1575,7 @@ final class LogisticsData
         }
 
         if ($key === 'maintenance' && ($columns['status'] ?? '') === 'in_progress' && !empty($columns['vehicle_id'])) {
-            $db->prepare("UPDATE vehicles SET status = 'maintenance' WHERE id = ? AND status = 'available'")
+            $db->prepare("UPDATE vehicles SET status = 'in_garage' WHERE id = ? AND status = 'available'")
                ->execute([(int) $columns['vehicle_id']]);
         }
 
@@ -1476,11 +1602,6 @@ final class LogisticsData
             // way with four other customers aboard. The trip cannot record this
             // — it has one request column and a shared truck has many — so the
             // shipment does it.
-            // Booking a load names the depot it is standing in, so that depot
-            // starts showing it. Everything after this — loading, arriving,
-            // being collected — is recorded by the button that causes it.
-            CargoCustody::received($id);
-
             self::claimRequest($db, (int) ($columns['request_id'] ?? 0), (int) ($columns['trip_id'] ?? 0));
             if ((int) ($before['request_id'] ?? 0) > 0 && (int) ($before['request_id'] ?? 0) !== (int) ($columns['request_id'] ?? 0)) {
                 self::releaseRequest($db, (int) $before['request_id']);
@@ -1522,17 +1643,6 @@ final class LogisticsData
         if ($key === 'payment_methods') {
             PaymentMethod::flush();
             PaymentMethod::postOpening($id);
-        }
-
-        if ($key === 'storage_releases' && !empty($columns['lot_id'])) {
-            Storage::recalculate((int) $columns['lot_id']);
-            if ((int) ($before['lot_id'] ?? 0) > 0 && (int) $before['lot_id'] !== (int) $columns['lot_id']) {
-                Storage::recalculate((int) $before['lot_id']);
-            }
-        }
-
-        if ($key === 'storage_lots') {
-            Storage::recalculate($id);
         }
 
         if ($key === 'trips') {
@@ -1801,6 +1911,8 @@ final class LogisticsData
 
         $code = self::code($key, $record);
 
+        Hooks::deleting($key, $record);
+
         if ($key === 'lookups') {
             // Deleting a choice that records still carry would leave those
             // records showing a value no drop-down offers. Retiring it keeps
@@ -1821,9 +1933,6 @@ final class LogisticsData
         }
         if ($key === 'disbursements' && in_array((string) ($record['status'] ?? ''), ['invoiced', 'recovered'], true)) {
             throw new \RuntimeException('This disbursement is on an invoice. Take it off the invoice lines first.');
-        }
-        if ($key === 'storage_lots' && (float) ($record['quantity_released'] ?? 0) > 0) {
-            throw new \RuntimeException('Goods have already been released from this lot against gate passes. Delete those first.');
         }
 
         if (empty($module['soft_delete'])) {
@@ -1855,10 +1964,6 @@ final class LogisticsData
             if ($key === 'supplier_payments' && !empty($record['bill_id'])) {
                 Payables::recalculateBill((int) $record['bill_id']);
             }
-        }
-
-        if ($key === 'storage_releases' && !empty($record['lot_id'])) {
-            Storage::recalculate((int) $record['lot_id']);
         }
 
         if ($key === 'payment_methods') {
@@ -1923,6 +2028,11 @@ final class LogisticsData
             $parameters[] = $scope[1];
         }
 
+        $company = self::companyCondition($module, $context);
+        if ($company !== null) {
+            $conditions[] = $company;
+        }
+
         $search = trim((string) ($query['q'] ?? ''));
         if ($search !== '' && !empty($module['search'])) {
             $likes = [];
@@ -1952,6 +2062,20 @@ final class LogisticsData
      *
      * @return array{0: string, 1: int}|null
      */
+    /**
+     * Each company sees only its own records (specification, section 3). A
+     * module opts out with 'company' => false; a module whose company is held
+     * on another table names it with 'company_column'.
+     */
+    private static function companyCondition(array $module, array $context): ?string
+    {
+        if (($module['company'] ?? true) === false || !array_key_exists('companies', $context)) {
+            return null;
+        }
+
+        return Company::condition($module['table'], $module['company_column'] ?? ($module['alias'] . '.company_id'), $context['companies']);
+    }
+
     private static function scopeCondition(array $module, array $context): ?array
     {
         if (($context['role'] ?? '') !== 'driver' || empty($module['scope']['driver'])) {
@@ -2067,16 +2191,32 @@ final class LogisticsData
         'disbursements' => 'disbursement_code',
         'purchase_requests' => 'request_code',
         'maintenance_orders' => 'work_order_code',
-        'storage_lots' => 'lot_code',
         'journeys' => 'journey_code',
         'payment_methods' => 'method_name',
         'price_offers' => 'offer_code',
         'rate_cards' => 'rate_code',
+        'freight_jobs' => 'job_code',
+        'cargo_claims' => 'claim_code',
     ];
 
+    /**
+     * A relation reaches SQL by name. The names come from the module
+     * definitions in code, never from a request, and must be plain identifiers
+     * of a table and column that really exist.
+     */
     private static function relationAllowed(string $table, string $column): bool
     {
-        return ($column !== '') && (self::LABEL_COLUMNS[$table] ?? null) === $column;
+        if (($column === '') || preg_match('/^[a-z][a-z0-9_]*$/', $table) !== 1 || preg_match('/^[a-z][a-z0-9_]*$/', $column) !== 1) {
+            return false;
+        }
+        if ((self::LABEL_COLUMNS[$table] ?? null) === $column) {
+            return true;
+        }
+        try {
+            return array_key_exists($column, self::columnMeta($table));
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**
@@ -2087,8 +2227,7 @@ final class LogisticsData
      */
     private static function relationParentAllowed(string $table, string $column): bool
     {
-        return self::relationAllowed($table, self::LABEL_COLUMNS[$table] ?? '')
-            && preg_match('/^[a-z][a-z0-9_]*_id$/', $column) === 1;
+        return preg_match('/^[a-z][a-z0-9_]*_id$/', $column) === 1 && self::relationAllowed($table, $column);
     }
     private static function relationExists(array $relation, string $id): bool
     {
@@ -2164,12 +2303,12 @@ final class LogisticsData
             );
             $held->execute([$previous, $tripId]);
             if ((int) $held->fetchColumn() === 0) {
-                $db->prepare("UPDATE {$table} SET status = 'available' WHERE id = ? AND status = 'on_trip'")->execute([$previous]);
+                $db->prepare("UPDATE {$table} SET status = IF('{$table}' = 'vehicles', 'available', 'active') WHERE id = ? AND status IN ('on_trip', 'assigned', 'loading', 'on_road', 'offloading', 'returning')")->execute([$previous]);
             }
         }
 
         if ($running && $current > 0) {
-            $db->prepare("UPDATE {$table} SET status = 'on_trip' WHERE id = ? AND status = 'available'")->execute([$current]);
+            $db->prepare("UPDATE {$table} SET status = IF('{$table}' = 'vehicles', 'on_road', 'on_trip') WHERE id = ? AND status IN ('available', 'active')")->execute([$current]);
         }
     }
 

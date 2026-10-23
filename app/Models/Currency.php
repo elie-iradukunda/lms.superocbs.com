@@ -137,6 +137,27 @@ final class Currency
         return ['rate' => $rate, 'base' => round($amount * $rate, 2), 'known' => true];
     }
 
+    /**
+     * How many units of $to one unit of $from buys on a day, through the
+     * rates Finance enters (each against the system base). Null when either
+     * rate is missing: the books never invent one.
+     */
+    public static function crossRate(string $from, string $to, string $date): ?float
+    {
+        $from = strtoupper(trim($from));
+        $to = strtoupper(trim($to));
+        if ($from === $to) {
+            return 1.0;
+        }
+        $fromRate = self::rateOn($from, $date);
+        $toRate = self::rateOn($to, $date);
+        if ($fromRate === null || $toRate === null || $toRate <= 0) {
+            return null;
+        }
+
+        return round($fromRate / $toRate, 8);
+    }
+
     /** An amount written the way that currency is written. */
     public static function format(float $amount, string $code): string
     {

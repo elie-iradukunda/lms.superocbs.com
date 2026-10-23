@@ -211,7 +211,8 @@ final class Payables
             [$billId]
         );
 
-        if ($bill === null || $bill['deleted_at'] !== null || in_array($bill['status'], ['draft', 'cancelled'], true) || self::alreadyBooked($bill)) {
+        // An open balance brought over from Tally is already in the opening ledger.
+        if ($bill === null || $bill['deleted_at'] !== null || in_array($bill['status'], ['draft', 'cancelled'], true) || self::alreadyBooked($bill) || (int) ($bill['is_opening'] ?? 0) === 1) {
             Posting::unpost('supplier_bill', $billId);
             return null;
         }

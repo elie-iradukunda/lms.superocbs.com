@@ -18,6 +18,10 @@ try {
     $accounts = (new Models\UserRepository())->activeLoginAccounts();
     test_sign_in($accounts['super_admin'], 'super_admin', 1);
 
+    // This suite is about the dispatch guards and their side effects on a
+    // domestic run; the paperwork rules have a suite of their own (golive.php).
+    Models\Settings::put('document_pack_always', '0');
+
     $scalar = static fn (string $sql, array $p = []): mixed => (static function () use ($pdo, $sql, $p) {
         $statement = $pdo->prepare($sql);
         $statement->execute($p);
@@ -173,8 +177,13 @@ try {
         'a claim is filed under whoever was signed in, not whoever the form named'
     );
 
+    // Operations checks it, then finance approves it: two signatures.
+    $firstSignature = Models\Workflow::apply('expenses', $expenseId, 'approve');
+    $test->assert($firstSignature['ok'] && str_starts_with($firstSignature['message'], 'Step 1 of 2'), 'the first signature on an expense is step 1 of 2: ' . $firstSignature['message']);
+    $test->same('pending', (string) $scalar('SELECT status FROM expenses WHERE id = ?', [$expenseId]), 'one signature does not approve the expense');
     $approved = Models\Workflow::apply('expenses', $expenseId, 'approve');
     $test->assert($approved['ok'], 'a pending expense can be approved');
+    $test->same('approved', (string) $scalar('SELECT status FROM expenses WHERE id = ?', [$expenseId]), 'the last signature approves the expense');
     $test->assert($scalar('SELECT approved_by FROM expenses WHERE id = ?', [$expenseId]) !== null, 'the approver is recorded on the expense');
     $test->assert(
         (int) $scalar('SELECT COUNT(*) FROM notifications WHERE user_id = ? AND title = ?', [$accounts['driver']['id'], 'Expense approved']) === 1,

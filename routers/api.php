@@ -8,6 +8,10 @@ use Controllers\ApiController;
 // Responses are JSON. Unauthenticated calls get 401, role-restricted ones 403,
 // and a POST without a valid CSRF token gets 419.
 $router->get('/health', [ApiController::class, 'health'], ['public' => true]);
+
+// GPS trackers (or a Traccar / Wialon server forwarding them) post positions
+// here with the tracker key from Company settings. No session, so no CSRF.
+$router->post('/gps/positions', [ApiController::class, 'gpsPositions'], ['public' => true, 'csrf' => false]);
 $router->get('/me', [ApiController::class, 'me']);
 
 $router->get('/my/trips', [ApiController::class, 'myTrips'], ['permission' => 'trips']);

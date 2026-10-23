@@ -150,6 +150,88 @@ final class ApiController
         $this->json($result, $result['ok'] ? 200 : 422);
     }
 
+    /**
+     * POST /api/gps/positions — positions from GPS trackers.
+     *
+     * Takes what the common servers send: Traccar's JSON forwarding
+     * ({"device": {"uniqueId"}, "position": {"latitude", "longitude", "speed" in knots, "course", "fixTime"}}),
+     * the OsmAnd protocol most tracker apps speak (id, lat, lon, timestamp, speed in knots as query or form fields),
+     * or a plain list of {"device_id", "lat", "lng", "speed_kmh", "heading", "time"}.
+     * The tracker key from Company settings comes in the X-Tracker-Key header or a "key" field.
+     */
+    public function gpsPositions(): void
+    {
+        $expected = trim(\Models\Settings::get('gps_api_token', ''));
+        $given = trim((string) ($_SERVER['HTTP_X_TRACKER_KEY'] ?? $_GET['key'] ?? $_POST['key'] ?? ''));
+        if ($expected === '' || strlen($expected) < 16) {
+            $this->json(['error' => 'Tracking is not switched on: set a tracker key of at least 16 characters under Company settings.'], 503);
+        }
+        if ($given === '' || !hash_equals($expected, $given)) {
+            $this->json(['error' => 'Wrong tracker key.'], 401);
+        }
+
+        $body = json_decode(file_get_contents('php://input') ?: '', true);
+        $points = [];
+        if (is_array($body) && isset($body['position']) && is_array($body['position'])) {
+            $points[] = [
+                'device' => (string) ($body['device']['uniqueId'] ?? $body['device']['id'] ?? ''),
+                'lat' => $body['position']['latitude'] ?? null,
+                'lng' => $body['position']['longitude'] ?? null,
+                'speed' => isset($body['position']['speed']) ? (float) $body['position']['speed'] * 1.852 : null,
+                'heading' => isset($body['position']['course']) ? (int) $body['position']['course'] : null,
+                'time' => (string) ($body['position']['fixTime'] ?? $body['position']['deviceTime'] ?? ''),
+                'accuracy' => isset($body['position']['accuracy']) && (float) $body['position']['accuracy'] > 0 ? (float) $body['position']['accuracy'] : null,
+            ];
+        } elseif (is_array($body)) {
+            foreach (array_is_list($body) ? $body : [$body] as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $points[] = [
+                    'device' => (string) ($row['device_id'] ?? $row['id'] ?? ''),
+                    'lat' => $row['lat'] ?? $row['latitude'] ?? null,
+                    'lng' => $row['lng'] ?? $row['lon'] ?? $row['longitude'] ?? null,
+                    'speed' => isset($row['speed_kmh']) ? (float) $row['speed_kmh'] : null,
+                    'heading' => isset($row['heading']) ? (int) $row['heading'] : null,
+                    'time' => (string) ($row['time'] ?? $row['recorded_at'] ?? ''),
+                    'accuracy' => isset($row['accuracy']) ? (float) $row['accuracy'] : null,
+                ];
+            }
+        } else {
+            $in = $_POST + $_GET;
+            $stamp = (string) ($in['timestamp'] ?? '');
+            $points[] = [
+                'device' => (string) ($in['id'] ?? $in['deviceid'] ?? ''),
+                'lat' => $in['lat'] ?? null,
+                'lng' => $in['lon'] ?? $in['lng'] ?? null,
+                'speed' => isset($in['speed']) ? (float) $in['speed'] * 1.852 : null,
+                'heading' => isset($in['bearing']) ? (int) $in['bearing'] : (isset($in['heading']) ? (int) $in['heading'] : null),
+                'time' => ctype_digit($stamp) ? date('Y-m-d H:i:s', (int) (strlen($stamp) > 10 ? intdiv((int) $stamp, 1000) : (int) $stamp)) : $stamp,
+                'accuracy' => isset($in['accuracy']) ? (float) $in['accuracy'] : null,
+            ];
+        }
+
+        $db = Database::connection();
+        $find = $db->prepare('SELECT id FROM vehicles WHERE gps_device_id = ? AND deleted_at IS NULL LIMIT 1');
+        $stored = 0;
+        $unknown = [];
+        foreach (array_slice($points, 0, 500) as $point) {
+            if ($point['device'] === '' || !is_numeric($point['lat']) || !is_numeric($point['lng'])) {
+                continue;
+            }
+            $find->execute([$point['device']]);
+            $vehicleId = (int) $find->fetchColumn();
+            if ($vehicleId <= 0) {
+                $unknown[$point['device']] = true;
+                continue;
+            }
+            $result = \Models\Tracking::record($vehicleId, (float) $point['lat'], (float) $point['lng'], $point['time'] !== '' ? $point['time'] : null, 'device', $point['speed'], $point['heading'], $point['accuracy']);
+            $stored += $result['ok'] ? 1 : 0;
+        }
+
+        $this->json(['stored' => $stored, 'unknown_devices' => array_keys($unknown)], $stored > 0 || $unknown === [] ? 200 : 404);
+    }
+
     private function json(array $payload, int $status = 200): never
     {
         http_response_code($status);

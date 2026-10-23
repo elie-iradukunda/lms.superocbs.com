@@ -300,7 +300,8 @@ INSERT INTO notifications (notification_key, user_id, role_key, title, message, 
 ('NOTIF-DRIVER-TRIP', (SELECT id FROM users WHERE email = 'samuel@itec.rw'), 'driver', 'Assigned trip update', 'Trip TRP-0248 is in transit. Keep delivery status and proof records current.', 'trips', 'info', 0, '2026-09-18 09:50:00'),
 ('NOTIF-FINANCE-APPROVALS', (SELECT id FROM users WHERE email = 'emmanuel@itec.rw'), 'finance', 'Expense approvals pending', 'Fuel, toll and allowance records are ready for finance review.', 'expenses', 'warning', 0, '2026-09-18 09:55:00'),
 ('NOTIF-MANAGEMENT-REPORTS', (SELECT id FROM users WHERE email = 'jeanpierre@itec.rw'), 'management', 'Management reports updated', 'Vehicle utilization, delivery performance and expense summaries are ready.', 'reports', 'success', 0, '2026-09-18 10:00:00'),
-('NOTIF-WORKSHOP-JOBS', (SELECT id FROM users WHERE email = 'patrick.workshop@itec.rw'), 'workshop', 'Job cards waiting', 'Open work orders are waiting in the workshop. Record the diagnosis, the parts and the hours on each job card.', 'maintenance', 'info', 0, '2026-09-18 10:05:00')
+('NOTIF-WORKSHOP-JOBS', (SELECT id FROM users WHERE email = 'patrick.workshop@itec.rw'), 'workshop', 'Job cards waiting', 'Open work orders are waiting in the workshop. Record the diagnosis, the parts and the hours on each job card.', 'maintenance', 'info', 0, '2026-09-18 10:05:00'),
+('NOTIF-CLEARANCE-FILES', (SELECT id FROM users WHERE email = 'grace.clearance@itec.rw'), 'clearance_officer', 'Clearance files to work on', 'Collect and check the papers on each open clearance file, then lodge the declaration before the truck leaves.', 'crossings', 'info', 0, '2026-09-18 10:10:00')
 ON DUPLICATE KEY UPDATE
     user_id = VALUES(user_id),
     role_key = VALUES(role_key),

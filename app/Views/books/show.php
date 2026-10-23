@@ -48,18 +48,15 @@ $currencies = $book['currencies'];
           <input type="date" id="to" name="to" class="form-control" value="<?= e($book['to']) ?>">
         </div>
 
-        <?php if (count($currencies) > 1): ?>
-          <div class="form-group mb-0 mr-2">
-            <label class="small text-muted mb-1 d-block" for="currency">Currency</label>
-            <select id="currency" name="currency" class="form-control">
-              <?php foreach ($currencies as $code): ?>
-                <option value="<?= e($code) ?>" <?= $book['currency'] === $code ? 'selected' : '' ?>><?= e($code) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-        <?php else: ?>
-          <input type="hidden" name="currency" value="<?= e($book['currency']) ?>">
-        <?php endif; ?>
+        <div class="form-group mb-0 mr-2">
+          <label class="small text-muted mb-1 d-block" for="currency">Currency</label>
+          <select id="currency" name="currency" class="form-control">
+            <?php foreach ($currencies as $code): ?>
+              <option value="<?= e($code) ?>" <?= $book['currency'] === $code ? 'selected' : '' ?>><?= e($code) ?> only</option>
+            <?php endforeach; ?>
+            <option value="<?= e(\Models\Ledger::BASE) ?>" <?= $book['currency'] === \Models\Ledger::BASE ? 'selected' : '' ?>>Everything in <?= e(company_view_all() ? 'each company base currency' : \Models\Company::baseCurrency()) ?> (converted)</option>
+          </select>
+        </div>
 
         <?php if ($needsAccount): ?>
           <div class="form-group mb-0 mr-2">

@@ -2,6 +2,10 @@
 
 Uyu ni umwongozo wuzuye (Presentation Guide) w'uburyo ushobora kwerekana iyi system (Logistics MVC) uhereye hasi (from scratch) ukerekana ubushobozi bwayo bwose wifashishije ingero zifatika (Practical Examples) ziri muri system.
 
+## Umwitozo w'intoki: Mombasa → Kigali
+
+Kugira ngo wige kwinjiza no kwemeza records ukoresheje pages zisanzwe (nta seed data cyangwa SQL), reba [Hands-on guide: cargo from Mombasa to Kigali](README_MOMBASA_TO_KIGALI.md). Igutambutsa mu ntambwe z'abakozi batandukanye, kuva umukiriya asabye transport kugeza amaze kwakira imizigo.
+
 ## 1. INTANGIRIRO (Introduction)
 Tangira usobanurira abakureba ko iyi ari "End-to-End Logistics & Fleet Management System" ihuza amashami yose y'ikigo cy'ubwikorezi.
 * **Icyo ikemura:** Ihuza abakiriya, imodoka, abashofeli, ububiko bw'ibikoresho (inventory), imipaka (customs), na Finance muri system imwe.
