@@ -408,8 +408,6 @@ final class Mailer
      */
     private static function render(array $message, string $realRecipient, bool $redirected): string
     {
-        $brand = Report::brand();
-        $colour = '#' . $brand['rgb'];
         $company = self::companyName();
         $escape = static fn (mixed $v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 
@@ -427,13 +425,20 @@ final class Mailer
             ? '<img src="' . $escape(self::link('brand/logo') . '?v=' . substr(md5((string) filemtime($logoFile)), 0, 8)) . '" alt="' . $escape($company)
               . '" height="40" style="display:block;height:40px;width:auto;max-width:160px;border:0">'
             : '';
-        $header = '<tr><td style="height:4px;line-height:4px;font-size:0;background:' . $colour . '">&nbsp;</td></tr>'
-            . '<tr><td style="padding:18px 26px 16px;border-bottom:1px solid #e9edf1">'
-            . '<table role="presentation" cellpadding="0" cellspacing="0"><tr>'
-            . ($logo !== '' ? '<td style="padding-right:12px;vertical-align:middle">' . $logo . '</td>' : '')
-            . '<td style="vertical-align:middle"><span style="display:block;color:#18222c;font-size:17px;font-weight:700;letter-spacing:.2px">' . $escape($company) . '</span>'
-            . ($external ? '' : '<span style="display:block;color:#77828d;font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-top:2px">Logistics Management System</span>')
-            . '</td></tr></table></td></tr>';
+        // A deep-navy band across the top: the company's logo (on a white chip so
+        // any logo shows), its name and, from the company settings, its address
+        // and contact line — so the letter is plainly from them.
+        $navy = '#1e2f57';
+        $details = trim((string) Report::companyDetails());
+        $header = '<tr><td style="padding:20px 26px;background:' . $navy . '">'
+            . '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%"><tr>'
+            . ($logo !== '' ? '<td style="padding-right:12px;vertical-align:middle"><span style="display:inline-block;background:#ffffff;border-radius:8px;padding:5px 8px;line-height:0">' . $logo . '</span></td>' : '')
+            . '<td style="vertical-align:middle">'
+            . '<span style="display:block;color:#ffffff;font-size:17px;font-weight:700;letter-spacing:.2px">' . $escape($company) . '</span>'
+            . ($details !== '' ? '<span style="display:block;color:#aeb9d6;font-size:11px;line-height:1.5;margin-top:3px">' . $escape($details) . '</span>' : '')
+            . '</td>'
+            . '<td align="right" style="vertical-align:middle"><span style="color:#8290b4;font-size:10px;letter-spacing:1.2px;text-transform:uppercase">Logistics Management System</span></td>'
+            . '</tr></table></td></tr>';
 
         // The first words an inbox shows under the subject: the point of the
         // email, not the header. Hidden in the message itself.
@@ -476,7 +481,7 @@ final class Mailer
         }
 
         $redirectNote = $redirected
-            ? '<p style="margin:14px 0 0;padding:10px 12px;background:#fff8e6;border-left:3px solid #e0a800;font-size:12px;color:#6b5600">'
+            ? '<p style="margin:14px 0 0;padding:11px 14px;background:#f5f8ff;border-left:3px solid #2b5cc0;border-radius:6px;font-size:12px;color:#44506a">'
               . 'Test mode: this message was addressed to <strong>' . $escape($realRecipient)
               . '</strong> and redirected here.</p>'
             : '';
@@ -525,7 +530,9 @@ final class Mailer
      */
     public static function content(array $message): string
     {
-        $colour = '#' . Report::brand()['rgb'];
+        // A fixed, professional blue for the button and table accents, so the
+        // letter reads calmly whatever the brand colour used elsewhere.
+        $colour = '#2b5cc0';
         $escape = static fn (mixed $v): string => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 
         $body = '';
