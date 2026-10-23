@@ -116,6 +116,13 @@ body.dark{--lms-line:#3a4149;--lms-muted:#a8b2bb;--lms-ink:#e7ecf0;--lms-surface
 .lms-facts dt:last-of-type,.lms-facts dd:last-of-type{border-bottom:0}
 .lms-longtext{white-space:pre-wrap}
 .lms-file-link{font-weight:600}
+/* An image attachment shown in place on a record page: a thumbnail card that
+   opens the full picture on click. Several in a row (a truck's four sides) wrap
+   onto the next line on a narrow screen. */
+.lms-photo-thumb{display:inline-block;width:150px;height:104px;border-radius:10px;overflow:hidden;border:1px solid var(--lms-line);background:var(--lms-surface);box-shadow:0 1px 3px rgba(15,23,42,.06);line-height:0}
+.lms-photo-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.lms-photo-thumb:hover{border-color:#1f4e8c;box-shadow:0 3px 10px rgba(15,23,42,.12)}
+@media (max-width:575.98px){.lms-photo-thumb{width:100%;height:150px}}
 .lms-attachments li{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:.82rem;border-bottom:1px solid var(--lms-line)}
 .lms-attachments li:last-child{border-bottom:0}
 .lms-attachments li span{flex:1}
