@@ -774,14 +774,17 @@ body.dark .lms-toast span, body.dark .lms-panel-item small { color: #aab4be; }
 .lms-home-secondary{border-left-color:#8492a6}.lms-home-secondary .lms-home-icon{background:#eef1f5;color:#5a6b80}
 
 /* ---------------------------------------------- readable text (both themes) */
-/* The theme's muted grey (#6c757d) is faint on white and far too dark on the
-   dark background. Give it a readable tone in each mode, and lift the smallest
-   type a little, so subtitles, labels and meta lines can actually be read. */
-.text-muted{color:#4d5763 !important}
-body.dark .text-muted,body.dark small.text-muted{color:#aeb8c3 !important}
-.small,small{font-size:85%}
-.page-title{color:var(--lms-ink)}
-.card-title,.card-header strong{color:var(--lms-ink)}
+/* The theme set the BODY text colour itself to the muted grey #6c757d, so every
+   ordinary line — not just .text-muted — inherited a faint grey and read badly
+   across the whole system. Default body text is now a dark ink on light and a
+   light tone on dark; the muted/secondary greys get a readable tone of their
+   own; and the smallest type is lifted so labels and meta lines can be read. */
+body{color:#2b3542}
+body.dark{color:#dde4ea}
+.text-muted,.text-secondary{color:#4d5763 !important}
+body.dark .text-muted,body.dark .text-secondary{color:#aeb8c3 !important}
+.small,small{font-size:88%}
+.page-title,.card-title,.card-header strong{color:var(--lms-ink)}
 body.dark .text-success{color:#5bbd8a !important}
 body.dark .text-warning{color:#e7b45a !important}
 body.dark a.small,body.dark .small a{color:#8fb0ff}
