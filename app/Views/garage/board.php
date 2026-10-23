@@ -33,7 +33,17 @@ $statusLabel = ['open' => 'Open', 'scheduled' => 'Scheduled', 'in_progress' => '
             <tr>
               <td><a href="<?= url(['garage', $job['id']]) ?>"><strong><?= e($job['work_order_code']) ?></strong></a></td>
               <td><?= e($job['plate_number'] ?? '—') ?><?php if (!empty($job['owner_company'])): ?> <span class="badge badge-light"><?= e($job['owner_company']) ?></span><?php endif; ?></td>
-              <td><?= e($job['service_name']) ?><small class="d-block text-muted"><?= e(mb_strimwidth((string) ($job['complaint'] ?? ''), 0, 90, '…')) ?></small></td>
+              <td>
+                <?php $priority = (string) ($job['priority'] ?? 'normal'); ?>
+                <?php if ($priority === 'urgent' || $priority === 'high'): ?>
+                  <span class="badge badge-<?= $priority === 'urgent' ? 'danger' : 'warning' ?> mr-1"><?= $priority === 'urgent' ? 'Urgent' : 'High' ?></span>
+                <?php endif; ?>
+                <?= e($job['service_name']) ?>
+                <small class="d-block text-muted"><?= e(mb_strimwidth((string) ($job['complaint'] ?? ''), 0, 90, '…')) ?></small>
+                <?php if (!empty($job['due_date']) && $job['due_date'] < date('Y-m-d')): ?>
+                  <small class="d-block text-danger"><i class="fe fe-clock fe-12 mr-1"></i>Due <?= e(human_date($job['due_date'])) ?> — overdue</small>
+                <?php endif; ?>
+              </td>
               <td><?= e(time_ago($job['started_at'] ?? $job['created_at'])) ?></td>
               <td><?= (int) $job['notes_open'] > 0 ? '<span class="badge badge-warning">Waiting in the store</span>' : '<span class="text-muted small">—</span>' ?></td>
               <td><span class="badge badge-<?= e($statusTone[$job['status']] ?? 'light') ?>"><?= e($statusLabel[$job['status']] ?? $job['status']) ?></span></td>

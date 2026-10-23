@@ -218,7 +218,13 @@ final class Garage
                     (SELECT COUNT(*) FROM form_requests r WHERE r.job_card_id = m.id AND r.form_code = 'F4' AND r.status = 'sent') AS notes_open
                FROM maintenance_orders m LEFT JOIN vehicles v ON v.id = m.vehicle_id LEFT JOIN companies co ON co.id = m.owner_company_id
               WHERE m.deleted_at IS NULL AND m.status " . ($closed ? "IN ('completed','cancelled') AND m.completed_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)" : "IN ('open','scheduled','in_progress')")
-            . ($condition !== null ? ' AND ' . $condition : '') . ' ORDER BY m.id DESC LIMIT 200'
+            . ($condition !== null ? ' AND ' . $condition : '')
+            // Open jobs: the most pressing first — urgent before low, and within
+            // one priority the one waiting longest on top. Closed jobs: the most
+            // recently finished first.
+            . ($closed
+                ? ' ORDER BY m.completed_at DESC LIMIT 200'
+                : " ORDER BY FIELD(m.priority, 'urgent', 'high', 'normal', 'low'), COALESCE(m.started_at, m.created_at) ASC LIMIT 200")
         )->fetchAll(PDO::FETCH_ASSOC);
     }
 
