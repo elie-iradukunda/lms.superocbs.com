@@ -103,7 +103,7 @@ INNER JOIN (
     SELECT 'vehicle_documents' AS k, 1 AS v, 1 AS c, 1 AS e, 1 AS d, 0 AS a UNION ALL
     SELECT 'drivers' AS k, 1 AS v, 1 AS c, 1 AS e, 0 AS d, 0 AS a UNION ALL
     SELECT 'driver_documents' AS k, 1 AS v, 1 AS c, 1 AS e, 1 AS d, 0 AS a UNION ALL
-    SELECT 'document_types' AS k, 1 AS v, 0 AS c, 0 AS e, 0 AS d, 0 AS a UNION ALL
+    SELECT 'document_types' AS k, 1 AS v, 1 AS c, 1 AS e, 0 AS d, 0 AS a UNION ALL
     SELECT 'driver_momo_changes' AS k, 1 AS v, 1 AS c, 1 AS e, 0 AS d, 1 AS a UNION ALL
     SELECT 'maintenance' AS k, 1 AS v, 0 AS c, 0 AS e, 0 AS d, 0 AS a UNION ALL
     SELECT 'garage' AS k, 1 AS v, 0 AS c, 0 AS e, 0 AS d, 0 AS a UNION ALL

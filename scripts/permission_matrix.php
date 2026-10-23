@@ -49,7 +49,7 @@ $roles = [
     // driver support, and raising sister-company requests.
     'logistics_manager' => [
         'dashboard' => $view, 'approvals' => $view, 'reports' => $view, 'tracking' => $view,
-        'vehicles' => $work, 'trailers' => $work, 'vehicle_documents' => $full, 'drivers' => $work, 'driver_documents' => $full, 'document_types' => $view,
+        'vehicles' => $work, 'trailers' => $work, 'vehicle_documents' => $full, 'drivers' => $work, 'driver_documents' => $full, 'document_types' => $work,
         'driver_momo_changes' => $sign, 'maintenance' => $view, 'garage' => $view, 'tyre_logs' => $view, 'crane_logs' => $work, 'store_issues' => $view, 'goods_receipts' => $view, 'stock_counts' => $view, 'warehouse' => $view,
         'routes' => $view, 'route_rates' => $view, 'service_rates' => $view, 'payroll' => $view,
         'trip_planner' => $sign, 'trips' => $sign, 'fuel_orders' => $sign, 'vehicle_handovers' => $sign, 'support_requests' => $sign,

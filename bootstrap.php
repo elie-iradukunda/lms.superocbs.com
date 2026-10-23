@@ -416,7 +416,7 @@ function navigation(): array
 {
     $groups = [
         ['label' => 'Fleet management', 'icon' => 'truck', 'id' => 'fleetMenu', 'items' => [
-            ['vehicles', 'Vehicles'], ['trailers', 'Trailers'], ['vehicle_documents', 'Truck documents'], ['drivers', 'Drivers'], ['driver_documents', 'Driver documents'], ['driver_momo_changes', 'MoMo changes'], ['garage', 'Garage'], ['maintenance', 'Job cards'], ['tyre_logs', 'Tyre log'], ['payroll', 'Payroll list'],
+            ['vehicles', 'Vehicles'], ['trailers', 'Trailers'], ['vehicle_documents', 'Truck documents'], ['drivers', 'Drivers'], ['driver_documents', 'Driver documents'], ['document_types', 'Document types'], ['driver_momo_changes', 'MoMo changes'], ['garage', 'Garage'], ['maintenance', 'Job cards'], ['tyre_logs', 'Tyre log'], ['payroll', 'Payroll list'],
         ]],
         ['label' => 'Trips', 'icon' => 'navigation', 'id' => 'tripsMenu', 'items' => [
             ['trip_planner', 'New trip'], ['trips', 'Trips'], ['fuel_orders', 'Fuel orders'], ['vehicle_handovers', 'Handovers'], ['support_requests', 'Driver support'], ['crane_logs', 'Crane log'], ['routes', 'Routes'], ['route_rates', 'Route rate card'], ['service_rates', 'Crane and tyre rates'],
