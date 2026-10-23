@@ -17,6 +17,12 @@ $width = (int) ($field['width'] ?? 6);
 $placeholder = $field['placeholder'] ?? '';
 $value = $value ?? '';
 
+// A field that only applies to some choices carries the rule with it: a map of
+// controlling field => the values that reveal this one. The toggler in the form
+// reads it, hides the field when the choice does not match, and disables its
+// inputs so a value left over from another choice is never saved.
+$showWhen = !empty($field['show_when']) ? (string) json_encode($field['show_when']) : '';
+
 $openGroup = static function (string $suffix): string {
     return $suffix === '' ? '' : '<div class="input-group">';
 };
@@ -24,7 +30,7 @@ $closeGroup = static function (string $suffix): string {
     return $suffix === '' ? '' : '<div class="input-group-append"><span class="input-group-text">' . e($suffix) . '</span></div></div>';
 };
 ?>
-<div class="col-md-<?= $width ?> form-group lms-field<?= $required ? ' is-required' : '' ?>">
+<div class="col-md-<?= $width ?> form-group lms-field<?= $required ? ' is-required' : '' ?>"<?= $showWhen !== '' ? ' data-show-when="' . e($showWhen) . '"' : '' ?>>
   <label for="<?= e($id) ?>">
     <?= e($field['label']) ?>
     <?php if ($required): ?><span class="lms-required" title="Required">*</span><?php endif; ?>
