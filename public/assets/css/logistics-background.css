@@ -78,6 +78,20 @@ body.vertical .lms-crumbs a:hover {
   color: var(--lms-accent);
 }
 
+/* The dashboard header uses .page-title (not .lms-page-title) and a plain
+   .text-muted subtitle, both of which sit on the texture. Give them the same
+   darker tone and light halo so they read against the busy surface. */
+body.vertical .page-title {
+  color: #18222c;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+body.vertical .page-title .text-muted,
+body.vertical .page-title + .text-muted {
+  color: #3c4650 !important;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
 /* Outline buttons in the page header need a surface of their own out here. */
 body.vertical .lms-page-actions .btn-outline-secondary,
 body.vertical .lms-page-actions .btn-outline-primary,
@@ -102,6 +116,17 @@ body.vertical.dark .lms-crumbs,
 body.vertical.dark .lms-crumbs a,
 body.vertical.dark .lms-crumbs .breadcrumb-item.active {
   color: #c3ccd4;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+body.vertical.dark .page-title {
+  color: #f1f4f7;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+body.vertical.dark .page-title .text-muted,
+body.vertical.dark .page-title + .text-muted {
+  color: #c3ccd4 !important;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
