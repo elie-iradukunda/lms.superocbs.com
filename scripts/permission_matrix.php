@@ -39,9 +39,20 @@ $roles = [
     // The Managing Director gives the final authorization and reads every
     // report for their company; no all_companies, so each company's MD sees
     // only their own. The dashboard shows them approvals, money and reports.
-    'management' => array_fill_keys($everything, $view) + [
-        'form_requests' => 'VA', 'invoices' => 'VA', 'journal' => 'VA', 'supplier_bills' => 'VA',
-        'trips' => 'VA', 'support_requests' => 'VA', 'opening_balances' => 'VA', 'currency_rates' => $view, 'intercompany' => $view,
+    // The Managing Director authorizes and oversees; they do not keep the books.
+    // A lean sidebar: approvals and reports, the things they sign (requests,
+    // journals, invoices, trips), and a read-only view of operations and money —
+    // not the accounting detail (chart of accounts, ledger mapping, cheques,
+    // bank reconciliation, budget), which belongs to Finance. Admin can grant
+    // any of these back on Administration > Role permissions.
+    'management' => [
+        'dashboard' => $view, 'approvals' => $view, 'reports' => $view, 'tracking' => $view,
+        'form_requests' => 'VA', 'journal' => 'VA', 'invoices' => 'VA', 'supplier_bills' => 'VA',
+        'trips' => 'VA', 'support_requests' => 'VA', 'requests' => 'VA', 'opening_balances' => 'VA',
+        'payment_batches' => $view, 'payments' => $view, 'customers' => $view, 'price_offers' => $view, 'rates' => $view,
+        'vehicles' => $view, 'trailers' => $view, 'drivers' => $view, 'deliveries' => $view, 'fuel' => $view,
+        'shipments' => $view, 'crossings' => $view, 'freight_jobs' => $view, 'journeys' => $view,
+        'intercompany' => $view, 'currency_rates' => $view,
     ],
 
     // The Operational Manager runs every operation: trucks, trailers, drivers
@@ -74,12 +85,13 @@ $roles = [
         'billing' => $work, 'shortage_rules' => $full, 'payroll' => 'VCEA', 'intercompany' => $view,
     ],
 
-    // The Cashier pays authorized requests and records the batch and proof,
-    // and reads the accounting and finance.
+    // The Cashier pays authorized requests and records the batch and proof.
+    // They see what they pay and the methods they pay with — not the whole
+    // ledger, the chart of accounts or the bank reconciliation.
     'cashier' => [
-        'dashboard' => $view, 'approvals' => $view, 'form_requests' => $view, 'payment_batches' => 'VCEA', 'books' => $view,
-        'journal' => $view, 'accounts' => $view, 'reports' => $view, 'invoices' => $view, 'supplier_bills' => $view, 'supplier_payments' => $view,
-        'payments' => $view, 'payment_methods' => $view, 'bank_statements' => $view, 'currency_rates' => $view, 'intercompany' => $view,
+        'dashboard' => $view, 'approvals' => $view, 'form_requests' => $view, 'payment_batches' => 'VCEA',
+        'payments' => $view, 'payment_methods' => $view, 'supplier_payments' => $view, 'cheques' => $view,
+        'invoices' => $view, 'supplier_bills' => $view, 'reports' => $view,
     ],
 
     // The Store & garage keeper issues parts, receives deliveries, counts
