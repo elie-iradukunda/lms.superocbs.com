@@ -190,6 +190,19 @@ Nothing is missing. This database matches the code.
 
 If it names something missing, it prints the one command that fixes it.
 
+`doctor.php` reads the live database, so MySQL must be up first. To catch the
+same kind of drift *before* a deploy — a model that names a column no migration
+creates — run the structural check, which needs no database at all:
+
+```
+php scripts/schema_check.php
+```
+
+It reads `database/schema.sql` and every migration the way `migrate.php` applies
+them, works out the tables and columns that leaves, and compares them with the
+module registry. Use it in CI or on a machine with no MySQL; the last line reads
+`The code and the migrations agree.` when nothing is adrift.
+
 **If your plan has no Terminal**, open the site in a browser instead. A working
 install shows the sign-in page. A blank page or a 500 means PHP could not start
 — check **cPanel → Errors** or the `error_log` file, and the usual cause is a
@@ -325,7 +338,7 @@ Then start entering vehicles, drivers, warehouses, customers and rate cards.
 | CSS missing, page unstyled | Same cause. Or `.htaccess` is not being read — ask the host whether `AllowOverride` is on. |
 | Emails never arrive | `php scripts/mail.php --list` shows why, per message. Usually the domain is not verified yet, or the host blocks outgoing HTTPS. |
 | Uploads fail | `storage/uploads` is not writable. Set it to 775. |
-| "unknown column" anywhere | `php scripts/doctor.php` names it and prints the fix. |
+| "unknown column" anywhere | `php scripts/doctor.php` names it and prints the fix. Before a deploy, `php scripts/schema_check.php` catches the same drift without a database. |
 
 ---
 

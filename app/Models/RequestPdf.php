@@ -44,11 +44,11 @@ final class RequestPdf
 
         if (trim((string) ($request['non_standard_reason'] ?? '')) !== '') {
             $pdf->text(self::MARGIN, $top, 'Why it differs from the rate card:', 8, true, self::INK);
-            $top = $pdf->paragraph(self::MARGIN, $top + 11, FormPdf::WIDTH - 2 * self::MARGIN, (string) $request['non_standard_reason'], 8) + 6;
+            $top += 11 + $pdf->paragraph(self::MARGIN, $top + 11, FormPdf::WIDTH - 2 * self::MARGIN, (string) $request['non_standard_reason'], 8) + 6;
         }
         if (trim((string) ($request['notes'] ?? '')) !== '') {
             $pdf->text(self::MARGIN, $top, 'Notes:', 8, true, self::INK);
-            $top = $pdf->paragraph(self::MARGIN, $top + 11, FormPdf::WIDTH - 2 * self::MARGIN, (string) $request['notes'], 8) + 6;
+            $top += 11 + $pdf->paragraph(self::MARGIN, $top + 11, FormPdf::WIDTH - 2 * self::MARGIN, (string) $request['notes'], 8) + 6;
         }
 
         if ($top > FormPdf::HEIGHT - 190) {
@@ -122,6 +122,7 @@ final class RequestPdf
             'To' => (string) ($request['to_company'] ?? ''),
             'Period' => $request['period_from'] ? date('d/m/Y', (int) strtotime((string) $request['period_from'])) . ' – ' . date('d/m/Y', (int) strtotime((string) ($request['period_to'] ?: $request['period_from']))) : '',
             'Needed on' => $request['needed_on'] ? date('d/m/Y', (int) strtotime((string) $request['needed_on'])) : '',
+            'Requested by' => (string) ($request['prepared_name'] ?? ''),
             'Subject' => (string) $request['title'],
         ], static fn (string $value): bool => trim($value) !== '');
 
@@ -163,8 +164,8 @@ final class RequestPdf
         }
 
         $columns = [
-            ['#', 16, 'left'], ['Truck', 52, 'left'], ['Trailer', 50, 'left'], ['Driver', 82, 'left'], ['Licence', 46, 'left'],
-            ['ID / Passport', 58, 'left'], ['Fuel (L)', 34, 'right'], ['Road toll', 46, 'right'], ['Mileage', 46, 'right'], ['Total', 50, 'right'], ['Paid to', 43, 'left'],
+            ['#', 16, 'left'], ['Truck', 52, 'left'], ['Trailer', 48, 'left'], ['Driver', 74, 'left'], ['Licence', 56, 'left'],
+            ['ID / Passport', 60, 'left'], ['Fuel (L)', 34, 'right'], ['Road toll', 46, 'right'], ['Mileage', 44, 'right'], ['Total', 50, 'right'], ['Paid to', 43, 'left'],
         ];
         $top = self::tableHead($pdf, $columns, $top);
         $n = 0;
@@ -202,24 +203,30 @@ final class RequestPdf
 
     private static function totals(FormPdf $pdf, array $request, array $lines, float $top): float
     {
+        // paragraph() returns the height it drew, not the new cursor, so each
+        // total advances $top by that height rather than overwriting it — the
+        // bug that printed the fuel total back up at the top of the page.
         $right = FormPdf::WIDTH - self::MARGIN;
+        $wrap = FormPdf::WIDTH - 2 * self::MARGIN - 46;
+        $top += 2;
         if ((int) $request['is_money'] === 1 && (float) $request['total_amount'] > 0) {
-            $pdf->text($right - 240, $top, 'TOTAL', 10, true, self::INK);
-            $pdf->text($right - 160, $top, Currency::format((float) $request['total_amount'], (string) $request['currency']), 10, true, self::INK, 'right', 160);
-            $top += 15;
+            $pdf->rect($right - 250, $top, 250, 18, self::HEAD_FILL, self::RULE);
+            $pdf->text($right - 244, $top + 5, 'TOTAL', 10, true, self::INK);
+            $pdf->text($right - 170, $top + 5, Currency::format((float) $request['total_amount'], (string) $request['currency']), 11, true, self::INK, 'right', 164);
+            $top += 24;
             $pdf->text(self::MARGIN, $top, 'In words:', 8, true, self::MUTED);
-            $top = $pdf->paragraph(self::MARGIN + 46, $top, FormPdf::WIDTH - 2 * self::MARGIN - 46, Words::amount((float) $request['total_amount'], (string) $request['currency']) . ' only.', 8.5, true) + 8;
+            $top += $pdf->paragraph(self::MARGIN + 46, $top, $wrap, Words::amount((float) $request['total_amount'], (string) $request['currency']) . ' only.', 8.5, true) + 10;
         }
         $litres = (float) ($request['total_quantity'] ?? 0);
         if ($litres > 0) {
-            $pdf->text($right - 240, $top, 'TOTAL FUEL', 10, true, self::INK);
-            $pdf->text($right - 160, $top, self::qty($litres) . ' L', 10, true, self::INK, 'right', 160);
+            $pdf->text($right - 244, $top, 'TOTAL FUEL', 10, true, self::INK);
+            $pdf->text($right - 170, $top, self::qty($litres) . ' L', 10, true, self::INK, 'right', 164);
             $top += 15;
             $pdf->text(self::MARGIN, $top, 'In words:', 8, true, self::MUTED);
-            $top = $pdf->paragraph(self::MARGIN + 46, $top, FormPdf::WIDTH - 2 * self::MARGIN - 46, ucfirst(Words::number((int) round($litres))) . ' litres.', 8.5, true) + 8;
+            $top += $pdf->paragraph(self::MARGIN + 46, $top, $wrap, ucfirst(Words::number((int) round($litres))) . ' litres.', 8.5, true) + 8;
         }
 
-        return $top + 4;
+        return $top + 6;
     }
 
     /** Prepared by / Verified by / Authorized by (stamp) / Paid by, each with name, date and signature. */
@@ -279,7 +286,8 @@ final class RequestPdf
             $x += $width;
         }
 
-        $pdf->text(self::MARGIN, $top + 140, sprintf('%s — generated by LMS on %s. Every step is in the request history.', RequestForms::label($request), date('d/m/Y H:i')), 7, false, self::MUTED);
+        $pdf->line(self::MARGIN, $top + 136, FormPdf::WIDTH - self::MARGIN, $top + 136, 0.6, self::RULE);
+        $pdf->text(self::MARGIN, $top + 143, sprintf('%s — generated by LMS on %s. Every step is in the request history.', RequestForms::label($request), date('d/m/Y H:i')), 7, false, self::MUTED);
     }
 
     // --------------------------------------------------------------- helpers

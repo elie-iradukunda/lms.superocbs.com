@@ -96,9 +96,9 @@ $headings = [
 <div class="container-fluid lms-form-page">
   <div class="lms-page-head">
     <div>
-      <p class="lms-kicker"><?= e($code) ?> · <?= e(\Models\Company::name(current_company_id())) ?></p>
+      <p class="lms-kicker"><?= e(\Models\Company::name(current_company_id())) ?></p>
       <h2 class="lms-page-title"><i class="fe fe-file-text mr-2"></i><?= e(($id === null ? 'New ' : 'Edit ') . $type['form_name']) ?></h2>
-      <p class="lms-page-sub"><?= e($type['description'] ?? '') ?> Chain: <?= e(RequestForms::CHAINS[$type['chain']] ?? '') ?>.</p>
+      <?php if (!empty($type['description'])): ?><p class="lms-page-sub"><?= e($type['description']) ?></p><?php endif; ?>
     </div>
     <div class="lms-page-actions"><a class="btn btn-outline-secondary" href="<?= $id === null ? url('form_requests') : url(['form_requests', $id]) ?>">Cancel</a></div>
   </div>
@@ -177,7 +177,7 @@ $headings = [
         <button type="button" class="btn btn-sm btn-outline-primary" id="lms-req-add"><i class="fe fe-plus fe-12 mr-1"></i>Add a line</button></header>
       <div class="table-responsive">
         <table class="table table-sm mb-0 lms-req-lines">
-          <thead><tr><?php foreach ($columns as $column): ?><th><?= e($headings[$column] ?? $column) ?></th><?php endforeach; ?><th></th></tr></thead>
+          <thead><tr><?php foreach ($columns as $column): ?><th><?= e($config['labels'][$column] ?? $headings[$column] ?? $column) ?></th><?php endforeach; ?><th></th></tr></thead>
           <tbody>
             <?php foreach ($lines as $index => $line): ?>
               <tr><?php foreach ($columns as $column): ?><td><?= $cell($column, $line, (string) $index) ?></td><?php endforeach; ?>

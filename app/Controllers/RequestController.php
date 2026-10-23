@@ -227,11 +227,12 @@ final class RequestController
     private function form(?int $id, array $request, array $lines, array $errors): void
     {
         $code = (string) $request['form_code'];
+        $type = RequestForms::formType($code);
         \view('requests/form', [
-            'title' => ($id === null ? 'New ' : 'Edit ') . $code,
+            'title' => ($id === null ? 'New ' : 'Edit ') . (string) ($type['form_name'] ?? 'request'),
             'id' => $id,
             'request' => $request,
-            'type' => RequestForms::formType($code),
+            'type' => $type,
             'config' => RequestFormConfig::for($code),
             'lines' => $lines,
             'lists' => RequestFormConfig::lists(),

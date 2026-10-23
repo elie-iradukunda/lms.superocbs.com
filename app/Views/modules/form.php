@@ -78,6 +78,53 @@ $saveLabel = $isEdit ? 'Save changes' : 'Create ' . strtolower($module['singular
     </div>
   </form>
 </div>
+<script>
+  // Fields that only apply to some choices hide themselves when the choice does
+  // not match. A field carries data-show-when='{"controlling_field":["value",…]}';
+  // this reveals it only while every controlling field holds one of those values,
+  // and disables the inputs of a hidden field so a value left from another choice
+  // is never submitted or saved. Works on create and on edit (it runs on load).
+  document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('lms-record-form');
+    if (!form) { return; }
+    var conditionals = Array.prototype.slice.call(form.querySelectorAll('[data-show-when]'));
+    if (conditionals.length === 0) { return; }
+
+    var controllers = {};
+    var rules = conditionals.map(function (wrapper) {
+      var map;
+      try { map = JSON.parse(wrapper.getAttribute('data-show-when')); } catch (e) { map = {}; }
+      Object.keys(map).forEach(function (fieldName) {
+        controllers[fieldName] = form.querySelector('#f_' + fieldName);
+      });
+      return { wrapper: wrapper, map: map };
+    });
+
+    var apply = function () {
+      rules.forEach(function (rule) {
+        var show = Object.keys(rule.map).every(function (fieldName) {
+          var el = controllers[fieldName];
+          if (!el) { return false; }
+          return rule.map[fieldName].indexOf(el.value) !== -1;
+        });
+        rule.wrapper.classList.toggle('d-none', !show);
+        rule.wrapper.querySelectorAll('input, select, textarea').forEach(function (input) {
+          input.disabled = !show;
+        });
+      });
+    };
+
+    Object.keys(controllers).forEach(function (fieldName) {
+      var el = controllers[fieldName];
+      if (!el) { return; }
+      el.addEventListener('change', apply);
+      el.addEventListener('input', apply);
+      if (window.jQuery) { window.jQuery(el).on('change', apply); }
+    });
+
+    apply();
+  });
+</script>
 <?php if ($moduleKey === 'pre_dispatch_checks'): ?>
 <script>
   // Dispatch check: choosing the shipment shows everything the system checked

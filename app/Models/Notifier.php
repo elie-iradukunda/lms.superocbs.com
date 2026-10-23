@@ -364,6 +364,18 @@ final class Notifier
             // "A · B · C" on the bell reads as three lines in a letter.
             $lines = array_values(array_filter(array_map('trim', explode(' · ', $message)), static fn (string $l): bool => $l !== ''));
 
+            // A request carries its own document. When the letter is about a
+            // request, the PDF as it stands — with the signatures gathered so
+            // far — goes out attached, not only as a link. Built once for the
+            // whole recipient list.
+            $attachments = [];
+            if ($entityType === 'form_requests' && $entityId !== null && $entityId !== '') {
+                $document = RequestPdf::store((int) $entityId);
+                if ($document !== null) {
+                    $attachments[] = $document;
+                }
+            }
+
             foreach (self::recipients($userId, $roleKey) as $person) {
                 Mailer::send([
                     // One message per person per notification, so a role of six
@@ -384,6 +396,7 @@ final class Notifier
                     ],
                     'entity_type' => $entityType,
                     'entity_id' => $entityId,
+                    'attachments' => $attachments,
                 ]);
             }
         } catch (\Throwable) {

@@ -223,8 +223,11 @@ final class Schema
                     'acquired_on' => ['label' => 'Acquired on', 'type' => 'date', 'width' => 3],
                     'trailer_id' => ['label' => 'Linked trailer', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'trailers', 'label' => 'trailer_number', 'where' => "deleted_at IS NULL AND status <> 'inactive'", 'empty' => 'No trailer']],
                     'max_payload_t' => ['label' => 'Maximum load', 'type' => 'decimal', 'required' => true, 'width' => 4, 'suffix' => 't', 'min' => 0],
-                    'cargo_tank_l' => ['label' => 'Cargo tank (tankers)', 'type' => 'number', 'width' => 4, 'suffix' => 'L', 'min' => 0],
-                    'container_sizes' => ['label' => 'Containers allowed (container trucks)', 'type' => 'select', 'width' => 4, 'options' => ['1x20' => '1 × 20 ft', '1x40' => '1 × 40 ft', '2x20' => '2 × 20 ft', '1x20,1x40' => '1 × 20 or 1 × 40 ft', '1x20,1x40,2x20' => 'Any: 1 × 20, 1 × 40, 2 × 20 ft']],
+                    // The cargo tank is a tanker's; the container sizes a
+                    // container truck's. The form shows each only for the fleet
+                    // it belongs to, chosen above.
+                    'cargo_tank_l' => ['label' => 'Cargo tank (tankers)', 'type' => 'number', 'width' => 4, 'suffix' => 'L', 'min' => 0, 'show_when' => ['fleet' => ['tanker']]],
+                    'container_sizes' => ['label' => 'Containers allowed (container trucks)', 'type' => 'select', 'width' => 4, 'options' => ['1x20' => '1 × 20 ft', '1x40' => '1 × 40 ft', '2x20' => '2 × 20 ft', '1x20,1x40' => '1 × 20 or 1 × 40 ft', '1x20,1x40,2x20' => 'Any: 1 × 20, 1 × 40, 2 × 20 ft'], 'show_when' => ['fleet' => ['container']]],
                     'fuel_tank_l' => ['label' => 'Own fuel tank', 'type' => 'number', 'width' => 4, 'suffix' => 'L', 'placeholder' => '1200'],
                     'fuel_type' => ['label' => 'Fuel', 'type' => 'select', 'width' => 4, 'options' => ['diesel' => 'Diesel', 'petrol' => 'Petrol', 'electric' => 'Electric', 'hybrid' => 'Hybrid', 'cng' => 'CNG']],
                     'normal_l_per_100km' => ['label' => 'Normal consumption', 'type' => 'decimal', 'width' => 4, 'suffix' => 'L/100 km', 'min' => 0],
@@ -237,7 +240,7 @@ final class Schema
                     'next_service_km' => ['label' => 'Next service at', 'type' => 'number', 'width' => 4, 'suffix' => 'km', 'readonly' => true, 'readonly_note' => 'last service + interval'],
                     'assigned_driver_id' => ['label' => 'Default driver', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'drivers', 'label' => 'full_name', 'where' => "deleted_at IS NULL AND status IN ('active','on_trip')", 'empty' => 'Unassigned']],
                     'status' => ['label' => 'Status', 'type' => 'select', 'required' => true, 'width' => 4, 'options' => Fleet::VEHICLE_STATUS],
-                    'off_road_reason' => ['label' => 'Why it is off road', 'type' => 'text', 'width' => 4, 'placeholder' => 'Accident, major breakdown'],
+                    'off_road_reason' => ['label' => 'Why it is off road', 'type' => 'text', 'width' => 4, 'placeholder' => 'Accident, major breakdown', 'show_when' => ['status' => ['off_road']]],
                     'photo_front' => ['label' => 'Front', 'type' => 'file', 'width' => 3],
                     'photo_back' => ['label' => 'Back', 'type' => 'file', 'width' => 3],
                     'photo_left' => ['label' => 'Left side', 'type' => 'file', 'width' => 3],
@@ -298,9 +301,13 @@ final class Schema
                     'vehicle_id' => ['label' => 'Usually coupled to', 'type' => 'relation', 'width' => 3, 'relation' => ['table' => 'vehicles', 'label' => 'plate_number', 'where' => 'deleted_at IS NULL', 'empty' => 'None']],
                     'status' => ['label' => 'Status', 'type' => 'select', 'required' => true, 'width' => 3, 'options' => Fleet::TRAILER_STATUS],
                     'max_load_t' => ['label' => 'Maximum load', 'type' => 'decimal', 'width' => 3, 'suffix' => 't'],
-                    'tank_capacity_l' => ['label' => 'Tank capacity', 'type' => 'number', 'width' => 3, 'suffix' => 'L'],
-                    'compartments' => ['label' => 'Compartments', 'type' => 'number', 'width' => 3],
-                    'container_sizes' => ['label' => 'Containers allowed', 'type' => 'select', 'width' => 3, 'options' => ['1x20' => '1 × 20 ft', '1x40' => '1 × 40 ft', '2x20' => '2 × 20 ft', '1x20,1x40' => '1 × 20 or 1 × 40 ft', '1x20,1x40,2x20' => 'Any']],
+                    // Tank fields belong to a tanker; container sizes to the
+                    // trailers that carry boxes. The form hides whichever does
+                    // not match the type chosen above, so nobody fills a tank
+                    // capacity on a flatbed or a container size on a tanker.
+                    'tank_capacity_l' => ['label' => 'Tank capacity', 'type' => 'number', 'width' => 3, 'suffix' => 'L', 'show_when' => ['trailer_type' => ['tanker']]],
+                    'compartments' => ['label' => 'Compartments', 'type' => 'number', 'width' => 3, 'show_when' => ['trailer_type' => ['tanker']]],
+                    'container_sizes' => ['label' => 'Containers allowed', 'type' => 'select', 'width' => 3, 'options' => ['1x20' => '1 × 20 ft', '1x40' => '1 × 40 ft', '2x20' => '2 × 20 ft', '1x20,1x40' => '1 × 20 or 1 × 40 ft', '1x20,1x40,2x20' => 'Any'], 'show_when' => ['trailer_type' => ['skeleton', 'flatbed']]],
                     'photo_file' => ['label' => 'Photo', 'type' => 'file', 'width' => 6],
                     'notes' => ['label' => 'Notes', 'type' => 'textarea', 'width' => 6],
                 ],
@@ -463,8 +470,10 @@ final class Schema
                 'fields' => [
                     'document_code' => ['label' => 'Reference', 'type' => 'text', 'required' => true, 'width' => 4, 'auto' => 'DOC'],
                     'owner_type' => ['label' => 'Document of', 'type' => 'select', 'required' => true, 'width' => 4, 'options' => ['vehicle' => 'A truck', 'trailer' => 'A trailer']],
-                    'vehicle_id' => ['label' => 'Truck', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'vehicles', 'label' => 'plate_number', 'where' => 'deleted_at IS NULL', 'empty' => 'Not a truck document']],
-                    'trailer_id' => ['label' => 'Trailer', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'trailers', 'label' => 'trailer_number', 'where' => 'deleted_at IS NULL', 'empty' => 'Not a trailer document']],
+                    // A document belongs to a truck or to a trailer, never both:
+                    // the form shows only the picker that matches the choice above.
+                    'vehicle_id' => ['label' => 'Truck', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'vehicles', 'label' => 'plate_number', 'where' => 'deleted_at IS NULL', 'empty' => 'Not a truck document'], 'show_when' => ['owner_type' => ['vehicle']]],
+                    'trailer_id' => ['label' => 'Trailer', 'type' => 'relation', 'width' => 4, 'relation' => ['table' => 'trailers', 'label' => 'trailer_number', 'where' => 'deleted_at IS NULL', 'empty' => 'Not a trailer document'], 'show_when' => ['owner_type' => ['trailer']]],
                     'document_type' => ['label' => 'Document', 'type' => 'select', 'required' => true, 'width' => 4, 'options' => Fleet::documentTypeOptions('vehicle') + Fleet::documentTypeOptions('trailer')],
                     'document_number' => ['label' => 'Number', 'type' => 'text', 'required' => true, 'width' => 4],
                     'provider_name' => ['label' => 'Issuer / insurer', 'type' => 'text', 'width' => 4, 'placeholder' => 'SONARWA'],

@@ -30,9 +30,9 @@ $option = static function (array $record, string $label, string $current, array 
 <div class="container-fluid lms-form-page">
   <div class="lms-page-head">
     <div>
-      <p class="lms-kicker">Trips · section 7</p>
+      <p class="lms-kicker">Trips</p>
       <h2 class="lms-page-title"><i class="fe fe-navigation mr-2"></i>New trip</h2>
-      <p class="lms-page-sub">Pick the route, the cargo, then each truck with its trailer and driver. The system checks documents for the whole trip, service, load and double booking, then creates the trips and one F1 (fuel, road toll, mileage) from the rate card.</p>
+      <p class="lms-page-sub">Pick the route and cargo, then each truck with its trailer and driver.</p>
     </div>
     <div class="lms-page-actions"><a class="btn btn-outline-secondary" href="<?= url('trips') ?>">Trips</a></div>
   </div>
@@ -72,7 +72,7 @@ $option = static function (array $record, string $label, string $current, array 
     </section>
 
     <section class="card shadow-sm lms-section mb-3">
-      <header class="lms-section-head"><div><span class="lms-section-num">2</span><div><h3><i class="fe fe-truck fe-16 mr-2"></i>Trucks, trailers and drivers</h3><p>Several trucks leaving together go on one F1. A ⚠ in a list means that one cannot go: pick it to see why.</p></div></div>
+      <header class="lms-section-head"><div><span class="lms-section-num">2</span><div><h3><i class="fe fe-truck fe-16 mr-2"></i>Trucks, trailers and drivers</h3><p>A ⚠ means that truck cannot go — pick it to see why.</p></div></div>
         <button type="button" class="btn btn-sm btn-outline-primary" id="lms-add-truck"><i class="fe fe-plus fe-12 mr-1"></i>Add a truck</button></header>
       <div class="table-responsive">
         <table class="table mb-0 lms-planner-rows">
@@ -110,7 +110,7 @@ $option = static function (array $record, string $label, string $current, array 
 
     <div class="lms-form-bar">
       <button type="button" class="btn btn-outline-primary" id="lms-check"><i class="fe fe-check-circle fe-12 mr-1"></i>Check the plan</button>
-      <button type="submit" class="btn btn-primary"><i class="fe fe-send fe-12 mr-1"></i>Create trips and send F1</button>
+      <button type="submit" class="btn btn-primary"><i class="fe fe-send fe-12 mr-1"></i>Create trip &amp; send money request</button>
     </div>
   </form>
 </div>

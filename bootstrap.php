@@ -416,13 +416,13 @@ function navigation(): array
 {
     $groups = [
         ['label' => 'Fleet management', 'icon' => 'truck', 'id' => 'fleetMenu', 'items' => [
-            ['vehicles', 'Vehicles'], ['trailers', 'Trailers'], ['vehicle_documents', 'Truck documents'], ['drivers', 'Drivers'], ['driver_documents', 'Driver documents'], ['driver_momo_changes', 'MoMo changes'], ['garage', 'Garage'], ['maintenance', 'Job cards'], ['tyre_logs', 'Tyre log'], ['payroll', 'Payroll list'],
+            ['vehicles', 'Vehicles'], ['trailers', 'Trailers'], ['vehicle_documents', 'Truck documents'], ['drivers', 'Drivers'], ['driver_documents', 'Driver documents'], ['document_types', 'Document types'], ['driver_momo_changes', 'MoMo changes'], ['garage', 'Garage'], ['maintenance', 'Job cards'], ['tyre_logs', 'Tyre log'], ['payroll', 'Payroll list'],
         ]],
         ['label' => 'Trips', 'icon' => 'navigation', 'id' => 'tripsMenu', 'items' => [
             ['trip_planner', 'New trip'], ['trips', 'Trips'], ['fuel_orders', 'Fuel orders'], ['vehicle_handovers', 'Handovers'], ['support_requests', 'Driver support'], ['crane_logs', 'Crane log'], ['routes', 'Routes'], ['route_rates', 'Route rate card'], ['service_rates', 'Crane and tyre rates'],
         ]],
         ['label' => 'Requests and payments', 'icon' => 'file-text', 'id' => 'requestsMenu', 'items' => [
-            ['form_requests', 'Requests (F1-F15)'], ['payment_batches', 'Payments'],
+            ['form_requests', 'Requests'], ['payment_batches', 'Payments'],
         ]],
         ['label' => 'Transport', 'icon' => 'map-pin', 'id' => 'transportMenu', 'items' => [
             // Short labels: the sidebar is narrow, and a name that wraps onto two
@@ -430,7 +430,7 @@ function navigation(): array
             ['requests', 'Transport requests'], ['freight_jobs', 'Freight jobs'], ['journeys', 'Journeys'], ['shipments', 'Shipments'], ['shipment_documents', 'Shipment papers'], ['pre_dispatch_checks', 'Dispatch checks'], ['deliveries', 'Deliveries'], ['crossings', 'Customs clearance'], ['clearance_documents', 'Customs documents'], ['clearance_inspections', 'Inspections'], ['clearance_payments', 'Customs payments'], ['clearance_releases', 'Customs releases'], ['containers', 'Containers'], ['border_posts', 'Border posts'],
         ]],
         ['label' => 'Commercial', 'icon' => 'briefcase', 'id' => 'commercialMenu', 'items' => [
-            ['customers', 'Customers'], ['billing', 'Invoice trips (F13)'], ['rates', 'Rate cards'], ['shortage_rules', 'Shortage tolerance'], ['price_offers', 'Price offers'], ['invoices', 'Invoices'], ['payments', 'Payments received'], ['disbursements', 'Disbursements'], ['cargo_claims', 'Cargo claims'],
+            ['customers', 'Customers'], ['billing', 'Invoice trips'], ['rates', 'Rate cards'], ['shortage_rules', 'Shortage tolerance'], ['price_offers', 'Price offers'], ['invoices', 'Invoices'], ['payments', 'Payments received'], ['disbursements', 'Disbursements'], ['cargo_claims', 'Cargo claims'],
         ]],
         ['label' => 'Finance', 'icon' => 'credit-card', 'id' => 'financeMenu', 'items' => [
             ['fuel', 'Fuel management'], ['expenses', 'Trip expenses'], ['supplier_bills', 'Supplier bills'], ['supplier_payments', 'Supplier payments'],

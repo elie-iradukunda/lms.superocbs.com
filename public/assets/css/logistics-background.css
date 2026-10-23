@@ -5,8 +5,14 @@
    ========================================================================== */
 
 body.vertical {
-  background-color: #cfcfcf;
-  background-image: url("../img/bg/wall-texture.jpg");
+  background-color: #eef1f5;
+  /* Light mode had no overlay, so the texture was busy and loud and text
+     outside a card (the page headers) was hard to read on it. A soft light
+     wash over the texture — the same idea the dark theme already uses — keeps
+     a hint of surface while letting titles and subtitles read cleanly. */
+  background-image:
+    linear-gradient(rgba(238, 241, 245, 0.84), rgba(238, 241, 245, 0.84)),
+    url("../img/bg/wall-texture.jpg");
   background-repeat: repeat;
   background-attachment: fixed;
 }
@@ -78,6 +84,27 @@ body.vertical .lms-crumbs a:hover {
   color: var(--lms-accent);
 }
 
+/* The dashboard header uses .page-title (not .lms-page-title) and a plain
+   .text-muted subtitle, both of which sit on the texture. Give them the same
+   darker tone and light halo so they read against the busy surface. */
+body.vertical .page-title {
+  color: #18222c;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+body.vertical .page-title .text-muted,
+body.vertical .page-title + .text-muted {
+  color: #3c4650 !important;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+/* The page subtitle was .small (~12px) and hard to read; give the header
+   subtitle a comfortable size of its own. */
+body.vertical .page-title + .text-muted,
+body.vertical .lms-page-sub {
+  font-size: 0.95rem;
+}
+
 /* Outline buttons in the page header need a surface of their own out here. */
 body.vertical .lms-page-actions .btn-outline-secondary,
 body.vertical .lms-page-actions .btn-outline-primary,
@@ -102,6 +129,17 @@ body.vertical.dark .lms-crumbs,
 body.vertical.dark .lms-crumbs a,
 body.vertical.dark .lms-crumbs .breadcrumb-item.active {
   color: #c3ccd4;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+body.vertical.dark .page-title {
+  color: #f1f4f7;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+body.vertical.dark .page-title .text-muted,
+body.vertical.dark .page-title + .text-muted {
+  color: #c3ccd4 !important;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 

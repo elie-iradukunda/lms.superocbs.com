@@ -432,9 +432,22 @@ if (!empty($record['rejection_reason'])) {
                 <dd class="col-sm-8">
                   <?php if ($field['type'] === 'file'): ?>
                     <?php if ($shown !== ''): ?>
-                      <a href="<?= e(url(array_merge(['files'], explode('/', $shown)))) ?>" target="_blank" rel="noopener" class="lms-file-link">
-                        <i class="fe fe-paperclip fe-12 mr-1"></i>Open <?= e(strtolower($field['label'])) ?>
-                      </a>
+                      <?php
+                      // A photo is worth seeing without a click: an image file is
+                      // shown as a thumbnail that opens full size, while a PDF or
+                      // a document keeps the plain "Open" link.
+                      $fileUrl = url(array_merge(['files'], explode('/', $shown)));
+                      $isImage = in_array(strtolower(pathinfo($shown, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'webp', 'gif'], true);
+                      ?>
+                      <?php if ($isImage): ?>
+                        <a href="<?= e($fileUrl) ?>" target="_blank" rel="noopener" class="lms-photo-thumb" title="Open <?= e(strtolower($field['label'])) ?> full size">
+                          <img src="<?= e($fileUrl) ?>" alt="<?= e($field['label']) ?>" loading="lazy">
+                        </a>
+                      <?php else: ?>
+                        <a href="<?= e($fileUrl) ?>" target="_blank" rel="noopener" class="lms-file-link">
+                          <i class="fe fe-paperclip fe-12 mr-1"></i>Open <?= e(strtolower($field['label'])) ?>
+                        </a>
+                      <?php endif; ?>
                     <?php else: ?>
                       <span class="text-muted">Not attached</span>
                     <?php endif; ?>
