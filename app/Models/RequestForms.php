@@ -84,7 +84,7 @@ final class RequestForms
             if ($onlyMine && !self::mayRaise($row)) {
                 continue;
             }
-            $options[(string) $row['form_code']] = $row['form_code'] . ' — ' . $row['form_name'];
+            $options[(string) $row['form_code']] = (string) $row['form_name'];
         }
 
         return $options;
@@ -749,7 +749,7 @@ final class RequestForms
             return '';
         }
 
-        return trim($request['form_code'] . ' ' . ($request['request_no'] ?: '#' . $request['id']));
+        return trim((string) ($request['request_no'] ?: '#' . $request['id']));
     }
 
     /**

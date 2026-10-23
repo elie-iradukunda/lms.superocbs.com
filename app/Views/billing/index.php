@@ -12,7 +12,7 @@ $number = static fn (float $value): string => rtrim(rtrim(number_format($value, 
 <div class="container-fluid lms-list-page">
   <div class="lms-page-head">
     <div>
-      <p class="lms-kicker">Commercial · customer invoice (F13)</p>
+      <p class="lms-kicker">Commercial · customer invoice</p>
       <h2 class="lms-page-title"><i class="fe fe-file-text mr-2"></i>Invoice delivered trips</h2>
       <p class="lms-page-sub">Pick the customer and the period. Every trip whose delivery note the OM checked is listed, priced from the customer's rate card, with any shortage the customer deducts. The invoice goes to the MD; once authorized it posts, is emailed to the customer and appears in their portal.</p>
     </div>

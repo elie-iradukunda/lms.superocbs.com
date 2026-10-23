@@ -30,9 +30,12 @@ final class RequestFormConfig
                 'items' => ['fuel', 'road_toll', 'mileage', 'other'],
                 'payee' => 'line',
             ],
+            // Fuel order (the paper "Fuel request"): one supplier and route at the
+            // top, then a line per truck — truck, trailer, driver, litres.
             'F2' => [
                 'header' => ['supplier_id', 'route_id', 'needed_on', 'non_standard_reason', 'notes'],
-                'columns' => ['trip_id', 'vehicle_id', 'trailer_id', 'driver_id', 'description', 'quantity'],
+                'columns' => ['vehicle_id', 'trailer_id', 'driver_id', 'quantity'],
+                'labels' => ['quantity' => 'Fuel (L)'],
                 'items' => ['fuel'],
                 'item_default' => 'fuel',
                 'unit' => 'L',
@@ -54,9 +57,12 @@ final class RequestFormConfig
                 'payee' => 'none',
                 'supplier_label' => 'Supplier',
             ],
+            // Tyre change payment (the paper): a line per truck — truck, driver,
+            // date, tyres, unit price, total — paid to one receiver.
             'F6' => [
                 'header' => ['period_from', 'period_to', 'payee', 'notes'],
-                'columns' => ['date', 'vehicle_id', 'driver_id', 'position', 'quantity', 'rate_id', 'unit_price', 'amount'],
+                'columns' => ['date', 'vehicle_id', 'driver_id', 'quantity', 'unit_price', 'amount'],
+                'labels' => ['quantity' => 'Tyres', 'unit_price' => 'Unit price', 'amount' => 'Total'],
                 'items' => ['tyre'],
                 'item_default' => 'tyre',
                 'unit' => 'tyre',
@@ -64,9 +70,12 @@ final class RequestFormConfig
                 'payee' => 'header',
                 'payee_label' => 'Tyre fitter (receiver)',
             ],
+            // Crane payment (the paper): a line per lift — date, truck, container,
+            // what was done and why, size, crane fee — paid to one operator.
             'F7' => [
                 'header' => ['period_from', 'period_to', 'payee', 'notes'],
-                'columns' => ['date', 'vehicle_id', 'container_no', 'operation', 'size', 'rate_id', 'amount'],
+                'columns' => ['date', 'vehicle_id', 'container_no', 'operation', 'description', 'size', 'amount'],
+                'labels' => ['description' => 'Work done & reason', 'amount' => 'Crane fee'],
                 'items' => ['crane'],
                 'item_default' => 'crane',
                 'unit' => 'lift',
@@ -127,7 +136,7 @@ final class RequestFormConfig
             'columns' => ['description', 'quantity', 'unit'],
             'items' => ['other'],
             'payee' => 'none',
-        ]) + ['created_by_flow' => null, 'item_default' => 'other', 'unit' => null, 'rate_type' => null, 'supplier_label' => 'Supplier', 'payee_label' => 'Paid to', 'payee_from' => null];
+        ]) + ['created_by_flow' => null, 'item_default' => 'other', 'unit' => null, 'rate_type' => null, 'supplier_label' => 'Supplier', 'payee_label' => 'Paid to', 'payee_from' => null, 'labels' => []];
     }
 
     /** The forms a person can start from the Requests page. @return array<string, string> */

@@ -16,12 +16,11 @@ $filters = array_intersect_key($_GET, array_flip(['form', 'status', 'currency', 
   <div class="lms-page-head">
     <div>
       <p class="lms-kicker">Requests and approvals</p>
-      <h2 class="lms-page-title"><i class="fe fe-file-text mr-2"></i>Requests (F1–F15)</h2>
-      <p class="lms-page-sub">Every money request follows one chain: Prepared → Verified by Finance → Authorized by the MD with the stamp → Paid by the Cashier.</p>
+      <h2 class="lms-page-title"><i class="fe fe-file-text mr-2"></i>Requests</h2>
     </div>
     <div class="lms-page-actions">
       <?php if (can_view('trip_planner') && role_can('trip_planner', 'create')): ?>
-        <a class="btn btn-outline-primary" href="<?= url('trip_planner') ?>"><i class="fe fe-navigation fe-12 mr-1"></i>New trip (creates F1)</a>
+        <a class="btn btn-outline-primary" href="<?= url('trip_planner') ?>"><i class="fe fe-navigation fe-12 mr-1"></i>New trip</a>
       <?php endif; ?>
       <?php if ($startable !== [] && can_create('form_requests')): ?>
         <div class="dropdown d-inline-block">
@@ -95,12 +94,12 @@ $filters = array_intersect_key($_GET, array_flip(['form', 'status', 'currency', 
           <thead><tr><th>Number</th><th>Form</th><th>Subject</th><th>Company</th><th>Prepared by</th><th>Cur.</th><th class="text-right">Amount</th><th>Status</th><th class="text-right"></th></tr></thead>
           <tbody>
           <?php if ($requests === []): ?>
-            <tr><td colspan="9" class="lms-empty"><i class="fe fe-inbox fe-32"></i><p class="mb-1"><strong>No requests yet</strong></p><p class="text-muted small">A trip creates its F1; the other forms start from "New request".</p></td></tr>
+            <tr><td colspan="9" class="lms-empty"><i class="fe fe-inbox fe-32"></i><p class="mb-1"><strong>No requests yet</strong></p><p class="text-muted small">Start one from "New request".</p></td></tr>
           <?php endif; ?>
           <?php foreach ($requests as $row): ?>
             <tr>
               <td><a class="lms-row-link" href="<?= url(['form_requests', $row['id']]) ?>"><strong><?= e($row['request_no'] ?: 'Draft #' . $row['id']) ?></strong></a></td>
-              <td><span class="badge badge-light"><?= e($row['form_code']) ?></span></td>
+              <td><span class="badge badge-light"><?= e($forms[$row['form_code']] ?? $row['form_code']) ?></span></td>
               <td><?= e($row['title']) ?></td>
               <td><?= e($row['company'] ?? '') ?></td>
               <td><?= e($row['prepared_name'] ?? '—') ?><small class="d-block text-muted"><?= e(human_date($row['prepared_at'] ?? $row['created_at'])) ?></small></td>
