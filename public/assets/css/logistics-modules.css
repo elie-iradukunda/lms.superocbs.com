@@ -6,8 +6,8 @@
    will do, what a column means — so it has to be read, not just glimpsed. The
    old #7a858f sat at 4.0:1 on white, under the 4.5:1 AA floor; these clear it
    at 5.6:1 and 5.3:1, and the weight below gives the small sizes some body. */
-:root{--lms-line:#e6ebf0;--lms-muted:#5b6771;--lms-ink:#22303c;--lms-surface:#fff;--lms-soft:#f6f8fa;--lms-accent:#5e72e4}
-body.dark{--lms-line:#3a4149;--lms-muted:#a8b2bb;--lms-ink:#e7ecf0;--lms-surface:#2b3035;--lms-soft:#31373d;--lms-accent:#f0b565}
+:root{--lms-line:#e6ebf0;--lms-muted:#4d5763;--lms-ink:#1c2630;--lms-surface:#fff;--lms-soft:#f6f8fa;--lms-accent:#5e72e4}
+body.dark{--lms-line:#3a4149;--lms-muted:#b2bcc6;--lms-ink:#eef2f6;--lms-surface:#2b3035;--lms-soft:#31373d;--lms-accent:#f0b565}
 
 /* The explanatory lines under a heading, a section title or an action bar. */
 .lms-page-sub,
@@ -772,3 +772,16 @@ body.dark .lms-toast span, body.dark .lms-panel-item small { color: #aab4be; }
 .lms-home-success{border-left-color:#2e8b57}.lms-home-success .lms-home-icon{background:#e6f5ec;color:#2e8b57}
 .lms-home-info{border-left-color:#17a2b8}.lms-home-info .lms-home-icon{background:#e3f6f9;color:#117a8b}
 .lms-home-secondary{border-left-color:#8492a6}.lms-home-secondary .lms-home-icon{background:#eef1f5;color:#5a6b80}
+
+/* ---------------------------------------------- readable text (both themes) */
+/* The theme's muted grey (#6c757d) is faint on white and far too dark on the
+   dark background. Give it a readable tone in each mode, and lift the smallest
+   type a little, so subtitles, labels and meta lines can actually be read. */
+.text-muted{color:#4d5763 !important}
+body.dark .text-muted,body.dark small.text-muted{color:#aeb8c3 !important}
+.small,small{font-size:85%}
+.page-title{color:var(--lms-ink)}
+.card-title,.card-header strong{color:var(--lms-ink)}
+body.dark .text-success{color:#5bbd8a !important}
+body.dark .text-warning{color:#e7b45a !important}
+body.dark a.small,body.dark .small a{color:#8fb0ff}
